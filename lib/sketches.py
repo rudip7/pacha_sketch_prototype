@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
+import matplotlib.patches as patches
+
 import seaborn as sns
 import time
 import json
@@ -315,25 +319,23 @@ def minimal_b_adic_cover(base, low, high, lowest_level = 0):
     # if 
     
     while low <= high:
-        low_level_limit = int(low/base**(level+1)) * base**(level+1)
+        low_level_limit = math.floor(low/base**(level+1)) * base**(level+1)
         if low_level_limit != low:
-            if low_level_limit > 0:
-                low_level_limit += base**(level+1)
+            low_level_limit += base**(level+1)
             while low_level_limit != low:
                 if low > high:
                     break
-                index = int(low/base**level)
+                index = math.floor(low/base**level)
                 D.append(BAdicRange(base, level, index))
                 low = low + base**level
 
-        high_level_limit = (int(high/base**(level+1))+1) * base**(level+1) -1
+        high_level_limit = (math.floor(high/base**(level+1))+1) * base**(level+1) -1
         if high_level_limit != high:
-            if high_level_limit >= 0:
-                high_level_limit -= base**(level+1)
+            high_level_limit -= base**(level+1)
             while high_level_limit != high:
                 if low > high:
                     break
-                index = int(high/base**level)
+                index = math.floor(high/base**level)
                 D.append(BAdicRange(base, level, index))
                 high = high - base**level
         
