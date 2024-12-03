@@ -6,6 +6,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import matplotlib.patches as patches
+import copy
+from typing import Any
 
 import seaborn as sns
 import time
@@ -233,6 +235,28 @@ class BAdicRange:
         self.index = index
         self.low = base**level * index
         self.high = base**level * (index + 1)
+
+    def downgrade_b_adic_range(self, new_level) -> list:
+        """
+        Downgrade the b-adic range to a lower level.
+        :param new_level: The new level to downgrade to.
+        :return: A list of BAdicRange objects with the same base but at the new level.
+        """
+        if new_level == self.level:
+            return [copy.deepcopy(self)]
+        if new_level > self.level:
+            raise ValueError("Cannot downgrade to a higher level.")
+        
+        level_diff = self.level - new_level
+        scale = self.base ** level_diff
+        temp_index = self.index * scale
+        new_ranges = []
+        for i in range(scale):
+            new_ranges.append(BAdicRange(self.base, new_level, temp_index))
+            temp_index += 1
+
+        return new_ranges
+
     
     def __str__(self):
         return (
@@ -318,9 +342,13 @@ def minimal_b_adic_cover(base, low, high, lowest_level = 0):
     # make sure that lowest level can capture exactly a bucket of the lowest level
     # if 
     
+    # Find the b-adic intervals for the given range starting from the bounds
     while low <= high:
+        # Check if the next level can cover exactly the value of the current low 
         low_level_limit = math.floor(low/base**(level+1)) * base**(level+1)
         if low_level_limit != low:
+            # When not, add as many intervals of the current level as needed to reach 
+            # the bound of the nect level
             low_level_limit += base**(level+1)
             while low_level_limit != low:
                 if low > high:
@@ -329,8 +357,11 @@ def minimal_b_adic_cover(base, low, high, lowest_level = 0):
                 D.append(BAdicRange(base, level, index))
                 low = low + base**level
 
+        # Check if the next level can cover exactly the value of the current high
         high_level_limit = (math.floor(high/base**(level+1))+1) * base**(level+1) -1
         if high_level_limit != high:
+            # When not, add as many intervals of the current level as needed to reach 
+            # the bound of the nect level
             high_level_limit -= base**(level+1)
             while high_level_limit != high:
                 if low > high:
@@ -350,40 +381,6 @@ def sort_b_adic_ranges(b_adic_ranges):
     :return: A numpy array of BAdicRange objects sorted by their low attribute.
     """
     return np.array(sorted(b_adic_ranges, key=lambda x: x.low))
-
-def visualize_badic_cover(b_adic_ranges, show_labels=False):
-    """
-    Visualize the minimal b-adic cover of a range.
-    :param b_adic_ranges: A numpy array of BAdicRange objects.
-    :param show_labels: Whether to display the limits of each range as labels.
-    """
-    if not len(b_adic_ranges):
-        print("No ranges to visualize.")
-        return
-
-    # Assign colors to different levels
-    levels = [r.level for r in b_adic_ranges]
-    unique_levels = sorted(set(levels))
-    level_colors = {level: plt.cm.viridis(i / len(unique_levels)) for i, level in enumerate(unique_levels)}
-
-    fig, ax = plt.subplots(figsize=(10, 2))
-
-    for i, r in enumerate(b_adic_ranges):
-        color = level_colors[r.level]
-        ax.barh(0, r.high - r.low, left=r.low, height=0.5, color=color, edgecolor='black', label=f'Level {r.level}' if i == levels.index(r.level) else "")
-        if show_labels:
-            ax.text((r.low + r.high) / 2, 0, f"[{r.low}, {r.high})", ha='center', va='center', fontsize=8, color='white')
-
-    # Format the plot
-    ax.set_yticks([])  # Remove y-axis ticks
-    ax.set_xlabel('Range')
-    ax.set_title('Minimal b-Adic Cover Visualization')
-    ax.legend(title="Levels", bbox_to_anchor=(1.05, 1), loc='upper left')
-    ax.grid(axis='x', linestyle='--', alpha=0.5)
-
-    plt.tight_layout()
-    plt.show()
-
 
 def plot_b_adic_cubes(cubes):
     """
@@ -449,3 +446,31 @@ def plot_b_adic_cubes(cubes):
     ax.set_ylabel("Y")
 
     plt.show()
+
+def minimal_spatial_b_adic_cover(bounds: list, bases: list):
+        assert len(bounds) == len(bases)
+
+        minimal_b_adic_covers = []
+        for i in range(len(bounds)):
+            minimal_b_adic_covers.append(minimal_b_adic_cover(bases[i], bounds[i][0], bounds[i][1]))
+
+        combinations = product(*minimal_b_adic_covers)
+
+        D = []
+        for combination in combinations:
+            # Find the minimum level
+            min_level = combination[0].level
+            for i in range(len(combination)):
+                if combination[i].level < min_level:
+                    min_level = combination[i].level
+
+            # Downgrade all the ranges to the minimum level in the combination
+            new_b_adic_ranges = []
+            for i in range(len(combination)):
+                new_b_adic_ranges.append(combination[i].downgrade_b_adic_range(min_level))
+
+            # Generate all local combinations for the new ranges and create the BAdicCubes
+            local_combinations = product(*new_b_adic_ranges)
+            for local_combination in local_combinations:
+                D.append(BAdicCube(local_combination, min_level, 0))
+        return np.asarray(D)
