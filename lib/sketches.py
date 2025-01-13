@@ -8,7 +8,9 @@ from matplotlib.patches import Rectangle
 import matplotlib.patches as patches
 import copy
 from typing import Any
+from numpy.typing import NDArray
 
+import hashlib
 import seaborn as sns
 import time
 import json
@@ -21,11 +23,18 @@ __all__ = ["H3HashFunctions", "CountMinSketch", "BAdicRange", "NumericRange"]
 
 
 
+import hashlib
+from ctypes import c_int32
+
 def _int32(val: Any) -> int:
     """Hash an arbitrary value into a 32-bit integer."""
     if isinstance(val, int) and -2147483648 <= val <= 2147483647:
         return val
 
+    if isinstance(val, tuple):
+        # Convert tuple to string and hash it
+        val = str(val)
+    
     if isinstance(val, str):
         # Generate a consistent hash value for the string
         hash_value = int(hashlib.sha256(val.encode()).hexdigest(), 16) % (2**31 - 1) - 2**31
@@ -381,71 +390,6 @@ def sort_b_adic_ranges(b_adic_ranges):
     :return: A numpy array of BAdicRange objects sorted by their low attribute.
     """
     return np.array(sorted(b_adic_ranges, key=lambda x: x.low))
-
-def plot_b_adic_cubes(cubes):
-    """
-    Plot BAdicCubes in 2D with colors representing their levels.
-    :param cubes: An array of BAdicCubes, where each cube has 2 BAdicRanges and a level.
-    """
-    # Create a colormap for levels
-    levels = sorted(set(cube.level for cube in cubes))
-    cmap = plt.cm.get_cmap("tab10", len(levels))  # Adjust color map for number of levels
-    level_to_color = {level: cmap(i) for i, level in enumerate(levels)}
-
-    fig, ax = plt.subplots(figsize=(10, 10))
-
-    for cube in cubes:
-        # Access the ranges using the correct attribute
-        x_range = cube.b_adic_ranges[0]  # First dimension
-        y_range = cube.b_adic_ranges[1]  # Second dimension
-
-        # Determine the color based on the cube's level
-        color = level_to_color[cube.level]
-
-        # Add a rectangle representing the cube to the plot
-        rect = patches.Rectangle(
-            (x_range.low, y_range.low),  # Bottom-left corner
-            x_range.high - x_range.low,  # Width
-            y_range.high - y_range.low,  # Height
-            linewidth=1,
-            edgecolor="black",
-            facecolor=color,
-            alpha=0.5
-        )
-        ax.add_patch(rect)
-
-        # Optionally, add labels showing the bounds of each cube
-        label = f"[{x_range.low}, {x_range.high})\n[{y_range.low}, {y_range.high})"
-        ax.text(
-            x_range.low + (x_range.high - x_range.low) / 2,
-            y_range.low + (y_range.high - y_range.low) / 2,
-            label,
-            fontsize=8,
-            color="black",
-            ha="center",
-            va="center"
-        )
-
-    # Set axis limits
-    all_x = [range_.low for cube in cubes for range_ in cube.b_adic_ranges[:1]] + \
-            [range_.high for cube in cubes for range_ in cube.b_adic_ranges[:1]]
-    all_y = [range_.low for cube in cubes for range_ in cube.b_adic_ranges[1:]] + \
-            [range_.high for cube in cubes for range_ in cube.b_adic_ranges[1:]]
-
-    ax.set_xlim(min(all_x), max(all_x))
-    ax.set_ylim(min(all_y), max(all_y))
-    ax.set_aspect('equal', adjustable='box')
-
-    # Add a legend for the levels
-    handles = [patches.Patch(color=level_to_color[level], label=f"Level {level}") for level in levels]
-    ax.legend(handles=handles, title="Levels", loc="upper right")
-
-    # Title and labels
-    ax.set_title("B-Adic Cubes Visualization")
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-
-    plt.show()
 
 def minimal_spatial_b_adic_cover(bounds: list, bases: list):
         assert len(bounds) == len(bases)

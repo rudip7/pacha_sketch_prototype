@@ -134,3 +134,68 @@ def plot_volume_distribution(cubes):
     plt.ylabel("Total Volume")
     plt.title("Volume Distribution Across Levels")
     plt.show()
+
+def plot_b_adic_cubes(cubes):
+    """
+    Plot BAdicCubes in 2D with colors representing their levels.
+    :param cubes: An array of BAdicCubes, where each cube has 2 BAdicRanges and a level.
+    """
+    # Create a colormap for levels
+    levels = sorted(set(cube.level for cube in cubes))
+    cmap = plt.cm.get_cmap("tab10", len(levels))  # Adjust color map for number of levels
+    level_to_color = {level: cmap(i) for i, level in enumerate(levels)}
+
+    fig, ax = plt.subplots(figsize=(10, 10))
+
+    for cube in cubes:
+        # Access the ranges using the correct attribute
+        x_range = cube.b_adic_ranges[0]  # First dimension
+        y_range = cube.b_adic_ranges[1]  # Second dimension
+
+        # Determine the color based on the cube's level
+        color = level_to_color[cube.level]
+
+        # Add a rectangle representing the cube to the plot
+        rect = patches.Rectangle(
+            (x_range.low, y_range.low),  # Bottom-left corner
+            x_range.high - x_range.low,  # Width
+            y_range.high - y_range.low,  # Height
+            linewidth=1,
+            edgecolor="black",
+            facecolor=color,
+            alpha=0.5
+        )
+        ax.add_patch(rect)
+
+        # Optionally, add labels showing the bounds of each cube
+        label = f"[{x_range.low}, {x_range.high})\n[{y_range.low}, {y_range.high})"
+        ax.text(
+            x_range.low + (x_range.high - x_range.low) / 2,
+            y_range.low + (y_range.high - y_range.low) / 2,
+            label,
+            fontsize=8,
+            color="black",
+            ha="center",
+            va="center"
+        )
+
+    # Set axis limits
+    all_x = [range_.low for cube in cubes for range_ in cube.b_adic_ranges[:1]] + \
+            [range_.high for cube in cubes for range_ in cube.b_adic_ranges[:1]]
+    all_y = [range_.low for cube in cubes for range_ in cube.b_adic_ranges[1:]] + \
+            [range_.high for cube in cubes for range_ in cube.b_adic_ranges[1:]]
+
+    ax.set_xlim(min(all_x), max(all_x))
+    ax.set_ylim(min(all_y), max(all_y))
+    ax.set_aspect('equal', adjustable='box')
+
+    # Add a legend for the levels
+    handles = [patches.Patch(color=level_to_color[level], label=f"Level {level}") for level in levels]
+    ax.legend(handles=handles, title="Levels", loc="upper right")
+
+    # Title and labels
+    ax.set_title("B-Adic Cubes Visualization")
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+
+    plt.show()
