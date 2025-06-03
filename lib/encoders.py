@@ -10,8 +10,8 @@ import copy
 from typing import Any
 from numpy.typing import NDArray
 
-import hashlib
-import random
+from hilbert import decode
+from hilbert import encode
 
 import seaborn as sns
 import time
@@ -20,11 +20,9 @@ import pandas as pd
 from ctypes import c_int32
 from itertools import product
 
-__all__ = ["BAdicRange", "BAdicCube", "NumericRange", "minimal_b_adic_cover", "sort_b_adic_ranges", "minimal_spatial_b_adic_cover"]
-
-
-
-
+__all__ = ["BAdicRange", "BAdicCube", "NumericRange", "minimal_b_adic_cover",
+            "sort_b_adic_ranges", "minimal_spatial_b_adic_cover", "get_border_coordinates", 
+            "check_jump", "get_hilbert_ranges", "draw_curve", "draw_hilbert_range", "check_query_coverage"]
 
 class BAdicRange:
         
@@ -219,3 +217,179 @@ def minimal_spatial_b_adic_cover(bounds: list[tuple], bases: list) -> np.ndarray
             for local_combination in local_combinations:
                 D.append(BAdicCube(local_combination, min_level, 0))
         return np.asarray(D)
+
+def get_border_coordinates(query):
+    dimensions = len(query)
+    ranges = [list(range(interval[0], interval[1] + 1)) for interval in query]
+    
+    border_points = []
+    
+    for point in product(*ranges):
+        for i in range(dimensions):
+            if point[i] == query[i][0] or point[i] == query[i][1]:
+                border_points.append(list(point))
+                break
+            
+    return np.asarray(border_points)
+
+def check_jump(hilbert_1, hilbert_2):
+    return hilbert_1 != hilbert_2 - 1
+
+def get_hilbert_ranges_OLD(query, num_dims, num_bits):
+    query = np.asarray(query)
+    border_coords = get_border_coordinates(query)
+    
+    if len(border_coords) == 1:
+        hilbert_index = encode(border_coords, num_dims, num_bits)
+        return [(hilbert_index, hilbert_index)]
+        
+    hilbert_indices =  np.asarray(sorted(encode(border_coords, num_dims, num_bits)))
+
+    ranges = []
+    i = 0
+    start = hilbert_indices[i]
+    
+    while i < len(hilbert_indices):
+        # Case 1: Check if in the current position we have a point range
+        # Special case where the point range is at the beginning
+        if start == hilbert_indices[i]:
+            if i == 0 and check_jump(hilbert_indices[i], hilbert_indices[i+1]):
+                end = hilbert_indices[i]
+                ranges.append((start, end))
+                if i + 1 < len(hilbert_indices):
+                    start = hilbert_indices[i+1]
+            # Special case where the point range is at the end
+            elif i == len(hilbert_indices) - 1 and check_jump(hilbert_indices[i-1], hilbert_indices[i]):
+                end = hilbert_indices[i]
+                ranges.append((start, end))
+            # General case
+            elif i > 0 and i < len(hilbert_indices) - 1 and check_jump(hilbert_indices[i-1], hilbert_indices[i]) and check_jump(hilbert_indices[i], hilbert_indices[i+1]):
+                # Confirm that it is a point range
+                next_coords = decode(hilbert_indices[i]+1, num_dims, num_bits)
+                if not np.all((next_coords >= query[:, 0]) & (next_coords <= query[:, 1]), axis=1)[0]:
+                    end = hilbert_indices[i]
+                    ranges.append((start, end))
+                    start = hilbert_indices[i+1]
+                
+
+        # Case 2: Build a normal range
+        # Next boder point is not contiguous in the Hilbert curve
+        elif i < len(hilbert_indices) - 1 and check_jump(hilbert_indices[i], hilbert_indices[i+1]):
+            # Check if the next Hilbert index is outside the query's bounds
+            next_coords = decode(hilbert_indices[i]+1, num_dims, num_bits)
+            if not np.all((next_coords >= query[:, 0]) & (next_coords <= query[:, 1]), axis=1)[0]:
+                end = hilbert_indices[i]
+                ranges.append((start, end))
+                start = hilbert_indices[i+1]
+        elif i == len(hilbert_indices) - 1:
+            end = hilbert_indices[i]
+            ranges.append((start, end))
+                
+        i += 1
+
+    return ranges
+
+
+def get_hilbert_ranges(query, num_dims, num_bits):
+    query = np.asarray(query)
+    border_coords = get_border_coordinates(query)
+    
+    if len(border_coords) == 1:
+        hilbert_index = encode(border_coords, num_dims, num_bits)
+        return [(hilbert_index, hilbert_index)]
+        
+    hilbert_indices =  np.asarray(sorted(encode(border_coords, num_dims, num_bits)))
+    next_points = decode(hilbert_indices+1, num_dims, num_bits)
+
+    ranges = []
+    i = 0
+    start = hilbert_indices[i]
+    
+    while i < len(hilbert_indices):
+        # Case 1: Check if in the current position we have a point range
+        # Special case where the point range is at the beginning
+        if start == hilbert_indices[i]:
+            if i == 0 and check_jump(hilbert_indices[i], hilbert_indices[i+1]):
+                end = hilbert_indices[i]
+                ranges.append((start, end))
+                if i + 1 < len(hilbert_indices):
+                    start = hilbert_indices[i+1]
+            # Special case where the point range is at the end
+            elif i == len(hilbert_indices) - 1 and check_jump(hilbert_indices[i-1], hilbert_indices[i]):
+                end = hilbert_indices[i]
+                ranges.append((start, end))
+            # General case
+            elif i > 0 and i < len(hilbert_indices) - 1 and check_jump(hilbert_indices[i-1], hilbert_indices[i]) and check_jump(hilbert_indices[i], hilbert_indices[i+1]):
+                # Confirm that it is a point range
+                next_coords = next_points[i]
+                if not np.all((next_coords >= query[:, 0]) & (next_coords <= query[:, 1]), axis=1)[0]:
+                    end = hilbert_indices[i]
+                    ranges.append((start, end))
+                    start = hilbert_indices[i+1]
+                
+
+        # Case 2: Build a normal range
+        # Next boder point is not contiguous in the Hilbert curve
+        elif i < len(hilbert_indices) - 1 and check_jump(hilbert_indices[i], hilbert_indices[i+1]):
+            # Check if the next Hilbert index is outside the query's bounds
+            next_coords = np.asarray([next_points[i]])
+            if not np.all((next_coords >= query[:, 0]) & (next_coords <= query[:, 1]), axis=1)[0]:
+                end = hilbert_indices[i]
+                ranges.append((start, end))
+                start = hilbert_indices[i+1]
+        elif i == len(hilbert_indices) - 1:
+            end = hilbert_indices[i]
+            ranges.append((start, end))
+                
+        i += 1
+
+    return ranges
+
+def draw_curve(ax, num_dims, num_bits):
+
+    # The maximum Hilbert integer.
+    max_h = 2**(num_bits*num_dims)
+
+    # Generate a sequence of Hilbert integers.
+    hilberts = np.arange(max_h)
+
+    # Compute the 2-dimensional locations.
+    locs = decode(hilberts, num_dims, num_bits)
+
+    # Draw
+    ax.plot(locs[:,0], locs[:,1], '.-')
+    ax.set_aspect('equal')
+    ax.set_title('%d bits per dimension' % (num_bits))
+    ax.set_xlabel('dim 1')
+    ax.set_ylabel('dim 2')
+
+def draw_hilbert_range(ax, range, num_dims, num_bits):
+    # Generate a sequence of Hilbert integers.
+    hilberts = np.arange(range[0], range[1]+1)
+
+    # Compute the 2-dimensional locations.
+    locs = decode(hilberts, num_dims, num_bits)
+
+    # Draw
+    ax.plot(locs[:,0], locs[:,1], 'r.-', )
+
+
+def check_query_coverage(query, ranges, num_dims, num_bits, deep_check=False):
+    query_size = np.prod([q[1] - q[0] + 1 for q in query])
+    range_cover = np.sum([r[1] - r[0] +1 for r in ranges])
+    if query_size != range_cover:
+        print(f"Size mismatch: query size = {query_size}, range cover = {range_cover}")
+        return False
+    if deep_check:
+        hilbert_points = []
+        for r in ranges:
+            hilbert_points.extend([p for p in range(r[0], r[1]+1)])
+        if len(hilbert_points) != len(set(hilbert_points)):
+            print("Duplicate points in the ranges")
+            return False
+        decoded_points = decode(hilbert_points, num_dims, num_bits)
+        for p in decoded_points:
+            if not all([q[0] <= p[i] <= q[1] for i, q in enumerate(query)]):
+                print(f"Point {p} is out of the query range")
+                return False
+    return True

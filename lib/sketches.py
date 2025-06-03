@@ -192,7 +192,8 @@ class CountMinSketch(BaseSketch):
                 self.min_val = min_val
                 self.max_val = max_val
                 possibleValues = max_val - min_val
-                self.width = int(np.ceil(np.log(possibleValues)/eps))
+                # self.width = int(np.ceil(np.log(possibleValues)/eps))
+                self.width = int(np.ceil(math.e/eps))
                 self.depth = int(np.ceil(np.log(1.0/delta)))
                 if(self.width*self.depth > possibleValues):
     #                 print("For the required epsilon = "+str(eps)+", and delta = "+str(delta)+", and "+str(max_val)+" diferent elements is better to use exact counters instead of a Count-Min Sketch")
