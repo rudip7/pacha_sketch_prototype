@@ -59,8 +59,8 @@ class H3HashFunctions:
     _rng: np.random.Generator
 
     
-    def __init__(self, n_functions=0, limit=0, seed=42, bits=32, json_dic=None):
-        if json_dic == None:
+    def __init__(self, n_functions=0, limit=0, seed=42, bits=32, json_dict: dict = None):
+        if json_dict == None:
             self.n_functions = n_functions
             self.seed = seed
             self.limit = limit
@@ -77,10 +77,10 @@ class H3HashFunctions:
             else:
                 print(self.bits)
         else:
-            self.n_functions = json_dic["n_functions"]
-            self.limit = json_dic["limit"]
-            self.bits = json_dic["bits"]
-            self.q_matrices = np.asarray(json_dic["q_matrices"])
+            self.n_functions = json_dict["n_functions"]
+            self.limit = json_dict["limit"]
+            self.bits = json_dict["bits"]
+            self.q_matrices = np.asarray(json_dict["q_matrices"])
             
     def hash_value(self, inp):
         if inp == 0:
@@ -115,16 +115,26 @@ class H3HashFunctions:
         print("H3HashFunctions\nn_functions = "+str(self.n_functions)+"\nq_matrices = "+str(self.q_matrices))
 
 class HashFunctionFamily:
-    def __init__(self, num_hashes, max_range):
+    def __init__(self, num_hashes: int = None, max_range: int = None, seed=7, json_dict: dict = None):
         """
         Initialize a family of hash functions.
         :param num_hashes: Number of hash functions (depth of CMS).
         :param max_range: Maximum range (width of CMS rows).
+        :param json_dict: Optional dictionary to initialize from JSON.
         """
-        self.num_hashes = num_hashes
-        self.max_range = max_range
-        self.coefficients = [(random.randint(1, max_range), random.randint(0, max_range)) for _ in range(num_hashes)]
-        self.prime = self._next_prime(max_range)
+        if json_dict is None:
+            random.seed(seed)
+            self.num_hashes = num_hashes
+            self.max_range = max_range
+            self.coefficients = [(random.randint(1, max_range), random.randint(0, max_range)) for _ in range(num_hashes)]
+            self.prime = self._next_prime(max_range)
+        else:
+            self.num_hashes = json_dict["num_hashes"]
+            self.max_range = json_dict["max_range"]
+            self.coefficients = []
+            for coeff in json_dict["coefficients"]:
+                self.coefficients.append(tuple(coeff))
+            self.prime = json_dict["prime"]
     
     def _next_prime(self, n):
         """Find the next prime number >= n."""
@@ -157,6 +167,29 @@ class HashFunctionFamily:
         :return: List of hash values.
         """
         return [self.hash(x, i) for i in range(self.num_hashes)]
+    
+    def to_json(self) -> dict:
+        """
+        Convert the hash function family to a JSON-serializable dictionary.
+        :return: Dictionary representation of the hash function family.
+        """
+        return {
+            "num_hashes": self.num_hashes,
+            "max_range": self.max_range,
+            "coefficients": self.coefficients,
+            "prime": self.prime
+        }
+    
+    def __eq__(self, other):
+        if not isinstance(other, HashFunctionFamily):
+            return False
+        return (
+            self.num_hashes == other.num_hashes and
+            self.max_range == other.max_range and
+            self.coefficients == other.coefficients and
+            self.prime == other.prime
+        )
+
 
 
 class BaseSketch:
@@ -176,86 +209,50 @@ class CountMinSketch(BaseSketch):
     hash_functions: HashFunctionFamily
     counters: NDArray[np.int32]
     
-    def __init__(self, width=-1, depth=-1, eps=0.0, delta=0.0, min_val=-2**31, max_val=2**31-1, seed=42, ntype='int32', json_dic=None):
-        if json_dic == None:
-            if(ntype == 'int32'):
-                self.bits = 32  
-            elif (ntype == 'int64'):
-                self.bits = 64
-            self.elementsProcessed = 0
+    def __init__(self, width: int = None, depth: int = None, eps: float = None, delta: float = None, seed: int = 7, json_dict: dict = None):
+        if json_dict is None:
 
-            if(width > 0 and depth > 0 and eps==0.0 and delta==0.0):
+            self.processed_elements = 0
+
+            # if(width > 0 and depth > 0 and eps==0.0 and delta==0.0):
+            if (width is not None and depth is not None and eps is None and delta is None):
                 self.width = width
                 self.depth = depth
                 self.exactCounters = False
-            elif(width <= 0 and depth <= 0 and eps>0.0 and delta>0.0):
-                self.min_val = min_val
-                self.max_val = max_val
-                possibleValues = max_val - min_val
+            elif(width is None and depth is None and eps is not None and delta is not None):
                 # self.width = int(np.ceil(np.log(possibleValues)/eps))
                 self.width = int(np.ceil(math.e/eps))
                 self.depth = int(np.ceil(np.log(1.0/delta)))
-                if(self.width*self.depth > possibleValues):
-    #                 print("For the required epsilon = "+str(eps)+", and delta = "+str(delta)+", and "+str(max_val)+" diferent elements is better to use exact counters instead of a Count-Min Sketch")
-                    self.counters = np.zeros(possibleValues, dtype=int)
-                    # self.hash_functions = None
-                    self.exactCounters = True
-                else:
-                    self.exactCounters = False
-    #             print(str(self.width)+"   :;   "+str(self.depth))
             else:
                 raise Exception("Define either a valid width and depth or a valid epsilon and delta.")
-            if(self.exactCounters == False):
-                self.seed = seed
-                # self.hash_functions = H3HashFunctions(self.depth,self.width,self.seed,self.bits)
-                self.hash_functions = HashFunctionFamily(self.depth, self.width)
-                self.counters = np.zeros((self.depth, self.width), dtype=int)
+ 
+            # self.hash_functions = H3HashFunctions(self.depth,self.width,self.seed,self.bits)
+            self.hash_functions = HashFunctionFamily(self.depth, self.width, seed=seed)
+            self.counters = np.zeros((self.depth, self.width), dtype=int)
         else:
-            self.bits = json_dic["bits"] 
-            self.elementsProcessed = json_dic["elementsProcessed"]
-            self.width = json_dic["width"]
-            self.depth = json_dic["depth"]
-            self.exactCounters = json_dic["exactCounters"]
-            self.min_val = json_dic["min_val"]
-            self.max_val = json_dic["max_val"]
-            self.counters = np.asarray(json_dic["counters"])
-            # self.hash_functions = H3HashFunctions(json_dic=json_dic["hash_functions"])            
+            self.processed_elements = json_dict["processed_elements"]
+            self.width = json_dict["width"]
+            self.depth = json_dict["depth"]
+            self.counters = np.asarray(json_dict["counters"])
+            self.hash_functions = HashFunctionFamily(json_dict=json_dict["hash_functions"])          
         
     def update(self, element):
-        if(self.exactCounters):
-            if(element >= self.min_val and element <= self.max_val ):
-                idx = self.getIndex(element)
-                self.counters[idx] += 1
-            else:
-                return
-        else:
-            # indices = self.hash_functions.hash_value(element)
-            indices = self.hash_functions.hash_value(element)
-            temp = 0
-            for idx in indices:
-                self.counters[temp][idx]+=1
-                temp+=1
-        self.elementsProcessed+=1
-        
-    def getIndex(self, element):
-        return element-self.min_val
+        indices = self.hash_functions.hash_value(element)
+        temp = 0
+        for idx in indices:
+            self.counters[temp][idx]+=1
+            temp+=1
+        self.processed_elements+=1
         
     def query(self, element):
-        if(self.exactCounters):
-            if(element >= self.min_val and element <= self.max_val ):
-                idx = self.getIndex(element)
-                return self.counters[idx]
-            else:
-                return 0
-        else:
-            result = 2**self.bits-1
-            indices = self.hash_functions.hash_value(element)
-            temp = 0
-            for idx in indices:
-                if (self.counters[temp][idx] < result):
-                    result = self.counters[temp][idx]
-                temp+=1
-            return result
+        result = math.inf
+        indices = self.hash_functions.hash_value(element)
+        temp = 0
+        for idx in indices:
+            if (self.counters[temp][idx] < result):
+                result = self.counters[temp][idx]
+            temp+=1
+        return result
         
     def query_interval(self, low, high):
         result = 0
@@ -270,39 +267,69 @@ class CountMinSketch(BaseSketch):
             result[i] = self.query_interval(b.low, b.high)
             i+=1
         return result
+    
+    def to_json(self) -> dict:
+        return {
+            "type": "CountMinSketch",
+            "processed_elements": self.processed_elements,
+            "width": self.width,
+            "depth": self.depth,
+            "counters": self.counters.tolist(),
+            "hash_functions": self.hash_functions.to_json()
+        }
+            
         
     def to_string(self, showMatrix=True):
         if(self.exactCounters):
             if showMatrix:
-                return("Exact counter\nprocessed elements = "+str(self.elementsProcessed)+"\n"+str(self.counters))
+                return("Exact counter\nprocessed elements = "+str(self.processed_elements)+"\n"+str(self.counters))
             else:
-                return("Exact counter\nprocessed elements = "+str(self.elementsProcessed))
+                return("Exact counter\nprocessed elements = "+str(self.processed_elements))
         else:
             if showMatrix:
-                return("Count-Min Sketch\ndepth = "+str(self.depth)+" width = "+str(self.width)+" ; processed elements = "+str(self.elementsProcessed)+"\n"+str(self.counters))
+                return("Count-Min Sketch\ndepth = "+str(self.depth)+" width = "+str(self.width)+" ; processed elements = "+str(self.processed_elements)+"\n"+str(self.counters))
             else:
-                return("Count-Min Sketch\ndepth = "+str(self.depth)+" width = "+str(self.width)+" ; processed elements = "+str(self.elementsProcessed))
+                return("Count-Min Sketch\ndepth = "+str(self.depth)+" width = "+str(self.width)+" ; processed elements = "+str(self.processed_elements))
+
+    def __eq__(self, other):
+        if not isinstance(other, CountMinSketch):
+            return False
+        return (
+            self.width == other.width and
+            self.depth == other.depth and
+            np.array_equal(self.counters, other.counters) and
+            self.hash_functions == other.hash_functions and
+            self.processed_elements == other.processed_elements
+        )
+
 
 class BloomFilter(BaseSketch):
-    def __init__(self, size=None, hash_count=None, n_values=None, p=None):
+    def __init__(self, size: int =None, hash_count: int =None, n_values: int =None, p: float=None, seed:int = 7, json_dict: dict = None):
         """
         Initialize the Bloom Filter.
         :param n_values: Estimated number of elements to store
         :param p: Desired false positive probability
         """
-        if size is not None and hash_count is not None:
-            self.size = size
-            self.hash_count = hash_count
-            self.hash_functions = HashFunctionFamily(hash_count, size)
-            self.bit_array = np.zeros(size, dtype=bool)
-        elif n_values is not None and p is not None:
-            self.size = self._optimal_size(n_values, p)
-            self.hash_count = self._optimal_hash_count(self.size, n_values)
-            self.hash_functions = HashFunctionFamily(self.hash_count, self.size)
-            self.bit_array = np.zeros(self.size, dtype=bool)
+        if json_dict is None:
+            if size is not None and hash_count is not None:
+                self.size = size
+                self.hash_count = hash_count
+                self.hash_functions = HashFunctionFamily(hash_count, size, seed=seed)
+                self.bit_array = np.zeros(size, dtype=bool)
+            elif n_values is not None and p is not None:
+                self.size = self._optimal_size(n_values, p)
+                self.hash_count = self._optimal_hash_count(self.size, n_values)
+                self.hash_functions = HashFunctionFamily(self.hash_count, self.size, seed=seed)
+                self.bit_array = np.zeros(self.size, dtype=bool)
+            else:
+                raise ValueError("Invalid arguments. Provide either size and hash_count or n_values and p.")
+            self.processed_elements = 0
         else:
-            raise ValueError("Invalid arguments. Provide either size and hash_count or n_values and p.")
-        self.elementsProcessed = 0
+            self.processed_elements = json_dict["processed_elements"]
+            self.size = json_dict["size"]
+            self.hash_count = json_dict["hash_count"]
+            self.bit_array = np.asarray(json_dict["bit_array"], dtype=bool)
+            self.hash_functions = HashFunctionFamily(json_dict=json_dict["hash_functions"])
 
     def _optimal_size(self, n_values, p):
         """
@@ -323,13 +350,36 @@ class BloomFilter(BaseSketch):
         indices = self.hash_functions.hash_value(element)
         for idx in indices:
             self.bit_array[idx] = True
-        self.elementsProcessed += 1
+        self.processed_elements += 1
 
-    def query(self, element):
+    def query(self, element) -> bool:
         """
         Check if an item is in the Bloom Filter.
         Returns True if the item might be in the set, False if it's definitely not.
         """
         return all(self.bit_array[hash_val] for hash_val in self.hash_functions.hash_value(element))
+    
+    def to_json(self) -> dict:
+        """
+        Convert the Bloom Filter to a JSON-serializable dictionary.
+        """
+        return {
+            "type": "BloomFilter",
+            "processed_elements": self.processed_elements,
+            "size": self.size,
+            "hash_count": self.hash_count,
+            "bit_array": self.bit_array.tolist(),
+            "hash_functions": self.hash_functions.to_json()
+        }
+    
+    def __eq__(self, other):
+        if not isinstance(other, BloomFilter):
+            return False
+        return (
+            self.size == other.size and
+            self.hash_count == other.hash_count and
+            np.array_equal(self.bit_array, other.bit_array) and
+            self.hash_functions == other.hash_functions
+        )
 
 

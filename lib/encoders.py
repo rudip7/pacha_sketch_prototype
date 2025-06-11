@@ -26,7 +26,7 @@ __all__ = ["BAdicRange", "BAdicCube", "NumericRange", "minimal_b_adic_cover",
 
 class BAdicRange:
         
-    def __init__(self, base, level, index):
+    def __init__(self, base: int, level: int, index: int):
         """
         Initialize a single b-adic range [base**level * index, base**level * (index + 1)).
         :param base: The base for the b-adic range (base >= 1).
@@ -88,20 +88,22 @@ class BAdicRange:
             
 class BAdicCube:
 
-    def __init__(self, b_adic_ranges: list, level, index) -> BAdicCube:
+    def __init__(self, b_adic_ranges: list[BAdicRange]) -> BAdicCube:
         """
         Initialize a b-adic cube with a list of b-adic ranges.
         :param b_adic_ranges: A numpy array of BAdicRange objects.
         :param level: The level of the b-adic cube.
         :param index: The index of the b-adic cube.
         """
+        self.level = b_adic_ranges[0].level
+        assert all(r.level == self.level for r in b_adic_ranges), "All ranges must have the same level."
         self.b_adic_ranges = b_adic_ranges
-        self.level = level
-        self.index = index
+        self.bases = tuple(r.base for r in b_adic_ranges)
+        self.indeces = tuple(r.index for r in b_adic_ranges)
 
     def __str__(self) -> str:
         return (
-            f"Level {self.level} Cube {self.index}:\n"
+            f"B: {self.bases} Level {self.level} Indeces: {self.indeces}\n"
             + "\n".join([str(r) for r in self.b_adic_ranges])
         )
     
@@ -115,9 +117,12 @@ class BAdicCube:
             return False
         return (
             self.level == other.level
-            and self.index == other.index
-            and all([r1 == r2 for r1, r2 in zip(self.b_adic_ranges, other.b_adic_ranges)])
+            and self.bases == other.bases
+            and self.indeces == other.indeces
         )
+    
+    def __hash__(self):
+        return hash((tuple(self.bases), self.level, tuple(self.indeces)))
     
 class NumericRange:
     
@@ -215,7 +220,7 @@ def minimal_spatial_b_adic_cover(bounds: list[tuple], bases: list) -> np.ndarray
             # Generate all local combinations for the new ranges and create the BAdicCubes
             local_combinations = product(*new_b_adic_ranges)
             for local_combination in local_combinations:
-                D.append(BAdicCube(local_combination, min_level, 0))
+                D.append(BAdicCube(local_combination))
         return np.asarray(D)
 
 def get_border_coordinates(query):
