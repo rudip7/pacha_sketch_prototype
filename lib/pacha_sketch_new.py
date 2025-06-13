@@ -34,44 +34,7 @@ from itertools import product
 from .sketches import BaseSketch, CountMinSketch, BloomFilter
 from .encoders import BAdicRange, BAdicCube, NumericRange, minimal_b_adic_cover, sort_b_adic_ranges, minimal_spatial_b_adic_cover, get_hilbert_ranges
 
-__all__ = ["PachaSketch", "ADTree", "CMParameters", "BFParameters", "build_pacha_sketch_uniform_size",
-           "CategoricalPredicate", "NumericalPredicate", "Predicate"]
-
-class Predicate:
-    def evaluate(self, value: Any) -> bool:
-        pass
-
-class CategoricalPredicate(Predicate):
-    def __init__(self, values: set[Any]):
-        if not isinstance(values, set):
-            raise TypeError("Values must be a set.")
-        self.values = values
-
-    def evaluate(self, value: Any) -> bool:
-        if self.values == {"*"}:
-            return True
-        return value in self.values
-
-class NumericalPredicate(Predicate):
-    def __init__(self, lower_bound: int = None, upper_bound: int = None, trivial: bool = False):
-        if trivial:
-            self.trivial = True
-            self.lower_bound = lower_bound
-            self.upper_bound = upper_bound
-            return
-        
-        self.trivial = False
-        if not isinstance(lower_bound, int) or not isinstance(upper_bound, int):
-            raise TypeError("Bounds must be integers.")
-        if lower_bound > upper_bound:
-            raise ValueError("Lower bound cannot be greater than upper bound.")
-        self.lower_bound = lower_bound
-        self.upper_bound = upper_bound
-
-    def evaluate(self, value: int) -> bool:
-        if not isinstance(value, int):
-            raise TypeError("Value must be an integer.")
-        return self.lower_bound <= value <= self.upper_bound
+__all__ = ["PachaSketch", "ADTree", "CMParameters", "BFParameters", "build_pacha_sketch_uniform_size"]
 
 class ADTree:
     def __init__(self, json_dict: dict = None):
@@ -104,7 +67,7 @@ class ADTree:
             mappings.append(tuple(mapping))
         return mappings
     
-    def get_relevant_nodes(self, predicates: list[set[Any]]) -> list[tuple]:
+    def get_relevant_nodes(self, predicates: list[set[Any]], for_query=False) -> list[tuple]:
         if len(predicates) != self.num_dimensions:
             raise ValueError("Predicates length does not match the number of dimensions.")
         
@@ -124,8 +87,10 @@ class ADTree:
                 continue
             elif not predicates[i].issubset(self.possible_values[i]):
                 raise ValueError(f"Predicate {predicates[i]} at index {i} is not in the possible values.")
-
-        relevant_nodes = [tuple("*" for _ in range(self.num_dimensions))] + list(product(*predicates))
+        
+        relevant_nodes = list(product(*predicates))
+        if not for_query:
+            relevant_nodes = [tuple("*" for _ in range(self.num_dimensions))] + relevant_nodes
         return relevant_nodes   
     
     def to_json(self) -> str:
@@ -301,20 +266,35 @@ class PachaSketch:
 
         return self
 
-    def query(self, query: list[Predicate]) -> int:
-        cat_predicates = [query[i].values for i in self.cat_col_map]
-        num_predicates = []
-        # [(query[i].lower_bound, query[i].upper_bound) for i in self.num_col_map]
-        for i, query_index in enumerate(self.num_col_map):
-            if not isinstance(query[query_index], NumericalPredicate):
-                raise TypeError(f"Query predicate at index {query_index} expected to be a NumericalPredicate.")
-            if query[query_index].trivial:
-                num_predicates.append((self.min_values[i], self.max_values[i]))
+    def query(self, query: list[Any], debug=False) -> int:
+        assert len(query) == self.num_dimensions, \
+            "Query must have the same number of dimensions as the sketch."
+        cat_predicates = [query[i] for i in self.cat_col_map]
+        num_predicates = [query[i] for i in self.num_col_map]
+        
+        for i, query_d in enumerate(cat_predicates):
+            if isinstance(query_d, set):
+                continue
+            elif isinstance(query_d, str) and query_d == "*":
+                cat_predicates[i] = {"*"}
             else:
-                num_predicates.append((query[query_index].lower_bound, query[query_index].upper_bound))
-                
-
-        relevant_nodes = self.ad_tree.get_relevant_nodes(cat_predicates)
+                idx = query.index(query_d)
+                raise TypeError(f"Query predicate at index {idx} expected to be a set or '*'.")
+        
+        for i, query_d in enumerate(num_predicates):
+            if isinstance(query_d, tuple) and len(query_d) == 2:
+                if not isinstance(query_d[0], int) or not isinstance(query_d[1], int):
+                    raise TypeError("Bounds must be integers.")
+                if query_d[0] > query_d[1]:
+                    raise ValueError("Lower bound cannot be greater than upper bound.")
+                continue
+            elif isinstance(query_d, str) and query_d == "*":
+                num_predicates[i] = (self.min_values[i], self.max_values[i])
+            else:
+                idx = query.index(query_d)
+                raise TypeError(f"Query predicate at index {idx} expected to be a tuple of (lower_bound, upper_bound) or '*'.")
+  
+        relevant_nodes = self.ad_tree.get_relevant_nodes(cat_predicates, for_query=True)
         b_adic_cubes = minimal_spatial_b_adic_cover(num_predicates, self.bases)
 
         cat_regions = []
@@ -328,6 +308,21 @@ class PachaSketch:
                 num_regions.append(cube)
 
         query_regions = list(product(cat_regions, num_regions))
+
+        if debug:
+            print(f"Categorical regions: {len(relevant_nodes)}")
+            print(f"Indexed categorical regions: {len(cat_regions)}")
+            print(f"Numerical regions: {len(b_adic_cubes)}")
+            print(f"Indexed numerical regions: {len(num_regions)}")
+            print(f"Query regions: {len(query_regions)}")
+
+            queries_per_level = [0] * self.levels
+            for region in query_regions:
+                queries_per_level[region[1].level] += 1
+            for i, count in enumerate(queries_per_level):
+                if count > 0:
+                    print(f"Level {i} queries: {count}")
+
         estimate = 0
         for region in query_regions:
             num_region = region[1]

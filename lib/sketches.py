@@ -209,7 +209,7 @@ class CountMinSketch(BaseSketch):
     hash_functions: HashFunctionFamily
     counters: NDArray[np.int32]
     
-    def __init__(self, width: int = None, depth: int = None, eps: float = None, delta: float = None, seed: int = 7, json_dict: dict = None):
+    def __init__(self, width: int = None, depth: int = None, eps: float = None, delta: float = None, diff_privacy: float = None, seed: int = 7, json_dict: dict = None):
         if json_dict is None:
 
             self.processed_elements = 0
@@ -228,13 +228,20 @@ class CountMinSketch(BaseSketch):
  
             # self.hash_functions = H3HashFunctions(self.depth,self.width,self.seed,self.bits)
             self.hash_functions = HashFunctionFamily(self.depth, self.width, seed=seed)
-            self.counters = np.zeros((self.depth, self.width), dtype=int)
+            self.diff_privacy = diff_privacy
+            if diff_privacy is None:
+                self.counters = np.zeros((self.depth, self.width), dtype=int)
+            else:
+                assert diff_privacy > 0, "Differential privacy parameter must be greater than 0."
+                noise = np.random.laplace(loc=0.0, scale=1/diff_privacy, size=(self.depth, self.width))
+                self.counters = np.round(noise).astype(int)
         else:
             self.processed_elements = json_dict["processed_elements"]
             self.width = json_dict["width"]
             self.depth = json_dict["depth"]
             self.counters = np.asarray(json_dict["counters"])
-            self.hash_functions = HashFunctionFamily(json_dict=json_dict["hash_functions"])          
+            self.hash_functions = HashFunctionFamily(json_dict=json_dict["hash_functions"])
+            self.diff_privacy = json_dict["diff_privacy"]          
         
     def update(self, element):
         indices = self.hash_functions.hash_value(element)
@@ -275,7 +282,8 @@ class CountMinSketch(BaseSketch):
             "width": self.width,
             "depth": self.depth,
             "counters": self.counters.tolist(),
-            "hash_functions": self.hash_functions.to_json()
+            "hash_functions": self.hash_functions.to_json(),
+            "diff_privacy": self.diff_privacy
         }
             
         
@@ -304,7 +312,7 @@ class CountMinSketch(BaseSketch):
 
 
 class BloomFilter(BaseSketch):
-    def __init__(self, size: int =None, hash_count: int =None, n_values: int =None, p: float=None, seed:int = 7, json_dict: dict = None):
+    def __init__(self, size: int =None, hash_count: int =None, n_values: int =None, p: float=None, diff_privacy: float = None, seed:int = 7, json_dict: dict = None):
         """
         Initialize the Bloom Filter.
         :param n_values: Estimated number of elements to store
@@ -315,14 +323,19 @@ class BloomFilter(BaseSketch):
                 self.size = size
                 self.hash_count = hash_count
                 self.hash_functions = HashFunctionFamily(hash_count, size, seed=seed)
-                self.bit_array = np.zeros(size, dtype=bool)
             elif n_values is not None and p is not None:
                 self.size = self._optimal_size(n_values, p)
                 self.hash_count = self._optimal_hash_count(self.size, n_values)
                 self.hash_functions = HashFunctionFamily(self.hash_count, self.size, seed=seed)
-                self.bit_array = np.zeros(self.size, dtype=bool)
             else:
                 raise ValueError("Invalid arguments. Provide either size and hash_count or n_values and p.")
+            self.diff_privacy = diff_privacy
+            if diff_privacy is None:
+                self.bit_array = np.zeros(self.size, dtype=bool)
+            else:
+                assert diff_privacy > 0, "Differential privacy parameter must be greater than 0."
+                flip_prob = 1 / (np.exp(diff_privacy) + 1)
+                self.bit_array = np.random.rand(self.size) < flip_prob
             self.processed_elements = 0
         else:
             self.processed_elements = json_dict["processed_elements"]
@@ -330,6 +343,7 @@ class BloomFilter(BaseSketch):
             self.hash_count = json_dict["hash_count"]
             self.bit_array = np.asarray(json_dict["bit_array"], dtype=bool)
             self.hash_functions = HashFunctionFamily(json_dict=json_dict["hash_functions"])
+            self.diff_privacy = json_dict["diff_privacy"]
 
     def _optimal_size(self, n_values, p):
         """
@@ -369,7 +383,8 @@ class BloomFilter(BaseSketch):
             "size": self.size,
             "hash_count": self.hash_count,
             "bit_array": self.bit_array.tolist(),
-            "hash_functions": self.hash_functions.to_json()
+            "hash_functions": self.hash_functions.to_json(),
+            "diff_privacy": self.diff_privacy
         }
     
     def __eq__(self, other):
