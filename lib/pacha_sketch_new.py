@@ -41,16 +41,19 @@ class ADTree:
         if json_dict is None:
             self.num_dimensions = 0
             self.possible_values = []
+            self.names = []
         else:
             self.num_dimensions = json_dict["num_dimensions"]
             self.possible_values = []
             for value_sets in json_dict["possible_values"]:
                 self.possible_values.append(set(value_sets))
+            self.names = json_dict["names"]
 
-    def add_dimension(self, possible_values: set[Any]):
+    def add_dimension(self, possible_values: set[Any], name: str = None):
         if not isinstance(possible_values, set):
             raise TypeError("Possible values must be a set.")
         self.possible_values.append(possible_values)
+        self.names.append(name if name is not None else f"Dimension {self.num_dimensions + 1}")
         self.num_dimensions += 1
 
     def get_mapping(self, element: tuple) -> list[tuple]:
@@ -96,9 +99,18 @@ class ADTree:
     def to_json(self) -> str:
         return {
             "num_dimensions": self.num_dimensions,
-            "possible_values": [list(values) for values in self.possible_values]
+            "possible_values": [list(values) for values in self.possible_values],
+            "names": self.names
         }
     
+    def save_to_file(self, file_path: str):
+        if file_path.endswith('.gz'):
+            with gzip.open(file_path, "wb") as f:
+                f.write(orjson.dumps(self.to_json()))
+        else:
+            with open(file_path, 'wb') as f:
+                f.write(orjson.dumps(self.to_json()))
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ADTree):
             return False
@@ -421,7 +433,21 @@ def build_pacha_sketch_from_json_file(file_path: str) -> PachaSketch:
     else:
         with open(file_path, 'rb') as f:
             json_dict = orjson.loads(file_path)
-    # with open(file_path, 'r') as file:
-    #     json_dict = json.load(file)
+
     return PachaSketch(json_dict=json_dict)
+
+
+def build_ad_tree_from_json_file(file_path: str) -> ADTree:
+    """
+    Build an AD Tree from a JSON file.
+    """
+    if file_path.endswith('.gz'):
+        with gzip.open(file_path, "rb") as f:
+            data_bytes = f.read()
+            json_dict = orjson.loads(data_bytes)
+    else:
+        with open(file_path, 'rb') as f:
+            json_dict = orjson.loads(file_path)
+
+    return ADTree(json_dict=json_dict)
 
