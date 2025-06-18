@@ -199,41 +199,45 @@ class BaseSketch:
     def query(self, element):
         pass
 
+    def merge(self, other: BaseSketch) -> BaseSketch:
+        pass
 
-class CountMinSketch(BaseSketch):
-    """A basic implementation of a Count-Min sketch."""
+    def add_privacy_noise(self, epsilon: float):
+        pass
+    
+    def to_json(self) -> dict:
+        pass
+
+
+class CountMinSketchHadamard(BaseSketch):
+    """A Count-Min sketch implementation using Hadamard transform."""
 
     depth: int
     width: int
-    # hash_functions: H3HashFunctions
     hash_functions: HashFunctionFamily
     counters: NDArray[np.int32]
     
-    def __init__(self, width: int = None, depth: int = None, eps: float = None, delta: float = None, diff_privacy: float = None, seed: int = 7, json_dict: dict = None):
+    def __init__(self, width: int = None, depth: int = None, error_eps: float = None, delta: float = None, epsilon: float = None, seed: int = 7, json_dict: dict = None):
         if json_dict is None:
-
             self.processed_elements = 0
 
-            # if(width > 0 and depth > 0 and eps==0.0 and delta==0.0):
-            if (width is not None and depth is not None and eps is None and delta is None):
+            if (width is not None and depth is not None and error_eps is None and delta is None):
                 self.width = width
                 self.depth = depth
                 self.exactCounters = False
-            elif(width is None and depth is None and eps is not None and delta is not None):
-                # self.width = int(np.ceil(np.log(possibleValues)/eps))
-                self.width = int(np.ceil(math.e/eps))
+            elif(width is None and depth is None and error_eps is not None and delta is not None):
+                self.width = int(np.ceil(math.e/error_eps))
                 self.depth = int(np.ceil(np.log(1.0/delta)))
             else:
                 raise Exception("Define either a valid width and depth or a valid epsilon and delta.")
  
-            # self.hash_functions = H3HashFunctions(self.depth,self.width,self.seed,self.bits)
             self.hash_functions = HashFunctionFamily(self.depth, self.width, seed=seed)
-            self.diff_privacy = diff_privacy
-            if diff_privacy is None:
+            self.epsilon = epsilon
+            if epsilon is None:
                 self.counters = np.zeros((self.depth, self.width), dtype=int)
             else:
-                assert diff_privacy > 0, "Differential privacy parameter must be greater than 0."
-                noise = np.random.laplace(loc=0.0, scale=1/diff_privacy, size=(self.depth, self.width))
+                assert epsilon > 0, "Differential privacy parameter must be greater than 0."
+                noise = np.random.laplace(loc=0.0, scale=1/epsilon, size=(self.depth, self.width))
                 self.counters = np.round(noise).astype(int)
         else:
             self.processed_elements = json_dict["processed_elements"]
@@ -241,7 +245,52 @@ class CountMinSketch(BaseSketch):
             self.depth = json_dict["depth"]
             self.counters = np.asarray(json_dict["counters"])
             self.hash_functions = HashFunctionFamily(json_dict=json_dict["hash_functions"])
-            self.diff_privacy = json_dict["diff_privacy"]          
+            self.epsilon = json_dict["epsilon"]          
+        
+    
+
+
+class CountMinSketch(BaseSketch):
+    """A basic implementation of a Count-Min sketch."""
+
+    depth: int
+    width: int
+    hash_functions: HashFunctionFamily
+    counters: NDArray[np.int32]
+    
+    def __init__(self, width: int = None, depth: int = None, error_eps: float = None, delta: float = None, epsilon: float = None, seed: int = 7, json_dict: dict = None):
+        if json_dict is None:
+
+            self.processed_elements = 0
+
+            # if(width > 0 and depth > 0 and error_eps==0.0 and delta==0.0):
+            if (width is not None and depth is not None and error_eps is None and delta is None):
+                self.width = width
+                self.depth = depth
+                self.exactCounters = False
+            elif(width is None and depth is None and error_eps is not None and delta is not None):
+                # self.width = int(np.ceil(np.log(possibleValues)/error_eps))
+                self.width = int(np.ceil(math.e/error_eps))
+                self.depth = int(np.ceil(np.log(1.0/delta)))
+            else:
+                raise Exception("Define either a valid width and depth or a valid epsilon and delta.")
+ 
+            # self.hash_functions = H3HashFunctions(self.depth,self.width,self.seed,self.bits)
+            self.hash_functions = HashFunctionFamily(self.depth, self.width, seed=seed)
+            self.epsilon = epsilon
+            if epsilon is None:
+                self.counters = np.zeros((self.depth, self.width), dtype=int)
+            else:
+                assert epsilon > 0, "Differential privacy parameter must be greater than 0."
+                noise = np.random.laplace(loc=0.0, scale=1/epsilon, size=(self.depth, self.width))
+                self.counters = np.round(noise).astype(int)
+        else:
+            self.processed_elements = json_dict["processed_elements"]
+            self.width = json_dict["width"]
+            self.depth = json_dict["depth"]
+            self.counters = np.asarray(json_dict["counters"])
+            self.hash_functions = HashFunctionFamily(json_dict=json_dict["hash_functions"])
+            self.epsilon = json_dict["epsilon"]          
         
     def update(self, element):
         indices = self.hash_functions.hash_value(element)
@@ -260,6 +309,41 @@ class CountMinSketch(BaseSketch):
                 result = self.counters[temp][idx]
             temp+=1
         return result
+    
+    def merge(self, other: CountMinSketch) -> CountMinSketch:
+        """
+        Merge another CountMinSketch into this one.
+        :param other: Another CountMinSketch instance.
+        """
+        assert isinstance(other, CountMinSketch), "Can only merge with another CountMinSketch."
+        if self.width != other.width or self.depth != other.depth:
+            raise ValueError("Cannot merge CountMinSketches with different dimensions.")
+        if self.hash_functions != other.hash_functions:
+            raise ValueError("Cannot merge CountMinSketches with different hash functions.")
+        
+        merged_sketch = copy.deepcopy(self)
+
+        merged_sketch.counters += other.counters
+        merged_sketch.processed_elements += other.processed_elements
+        if merged_sketch.epsilon is not None and other.epsilon is not None:
+            merged_sketch.epsilon += other.epsilon
+        elif other.epsilon is not None:
+            merged_sketch.epsilon = other.epsilon
+        return merged_sketch
+    
+    def add_privacy_noise(self, epsilon: float):
+        """
+        Add Laplace noise to the counters for differential privacy.
+        :param epsilon: Scale of the Laplace noise.
+        """
+        assert epsilon > 0, "Differential privacy parameter must be greater than 0."
+        if self.epsilon is not None and self.epsilon > 0:
+            self.epsilon += epsilon
+        else:
+            self.epsilon = epsilon
+
+        noise = np.random.laplace(loc=0.0, scale=1/epsilon, size=self.counters.shape)
+        self.counters += np.round(noise).astype(int)
         
     def query_interval(self, low, high):
         result = 0
@@ -283,7 +367,7 @@ class CountMinSketch(BaseSketch):
             "depth": self.depth,
             "counters": self.counters.tolist(),
             "hash_functions": self.hash_functions.to_json(),
-            "diff_privacy": self.diff_privacy
+            "epsilon": self.epsilon
         }
             
         
@@ -312,7 +396,7 @@ class CountMinSketch(BaseSketch):
 
 
 class BloomFilter(BaseSketch):
-    def __init__(self, size: int =None, hash_count: int =None, n_values: int =None, p: float=None, diff_privacy: float = None, seed:int = 7, json_dict: dict = None):
+    def __init__(self, size: int =None, hash_count: int =None, n_values: int =None, p: float=None, epsilon: float = None, seed:int = 7, json_dict: dict = None):
         """
         Initialize the Bloom Filter.
         :param n_values: Estimated number of elements to store
@@ -329,12 +413,12 @@ class BloomFilter(BaseSketch):
                 self.hash_functions = HashFunctionFamily(self.hash_count, self.size, seed=seed)
             else:
                 raise ValueError("Invalid arguments. Provide either size and hash_count or n_values and p.")
-            self.diff_privacy = diff_privacy
-            if diff_privacy is None:
+            self.epsilon = epsilon
+            if epsilon is None:
                 self.bit_array = np.zeros(self.size, dtype=bool)
             else:
-                assert diff_privacy > 0, "Differential privacy parameter must be greater than 0."
-                flip_prob = 1 / (np.exp(diff_privacy) + 1)
+                assert epsilon > 0, "Differential privacy parameter must be greater than 0."
+                flip_prob = 1 / (np.exp(epsilon) + 1)
                 self.bit_array = np.random.rand(self.size) < flip_prob
             self.processed_elements = 0
         else:
@@ -343,7 +427,7 @@ class BloomFilter(BaseSketch):
             self.hash_count = json_dict["hash_count"]
             self.bit_array = np.asarray(json_dict["bit_array"], dtype=bool)
             self.hash_functions = HashFunctionFamily(json_dict=json_dict["hash_functions"])
-            self.diff_privacy = json_dict["diff_privacy"]
+            self.epsilon = json_dict["epsilon"]
 
     def _optimal_size(self, n_values, p):
         """
@@ -373,6 +457,40 @@ class BloomFilter(BaseSketch):
         """
         return all(self.bit_array[hash_val] for hash_val in self.hash_functions.hash_value(element))
     
+    def merge(self, other: BloomFilter) -> BloomFilter:
+        """
+        Merge another Bloom Filter into this one.
+        :param other: Another BloomFilter instance.
+        """
+        assert isinstance(other, BloomFilter), "Can only merge with another BloomFilter."
+        if self.size != other.size or self.hash_count != other.hash_count:
+            raise ValueError("Cannot merge BloomFilters with different sizes or hash counts.")
+        if self.hash_functions != other.hash_functions:
+            raise ValueError("Cannot merge BloomFilters with different hash functions.")
+        
+        merged_sketch = copy.deepcopy(self)
+
+        merged_sketch.bit_array = np.logical_or(merged_sketch.bit_array, other.bit_array)
+        merged_sketch.processed_elements += other.processed_elements
+        if merged_sketch.epsilon is not None and other.epsilon is not None:
+            merged_sketch.epsilon += other.epsilon
+        elif other.epsilon is not None:
+            merged_sketch.epsilon = other.epsilon
+        return merged_sketch
+    
+    def add_privacy_noise(self, epsilon: float):
+        """
+        Add noise to the Bloom Filter for differential privacy.
+        :param epsilon: Scale of the noise.
+        """
+        assert epsilon > 0, "Differential privacy parameter must be greater than 0."
+        if self.epsilon is not None and self.epsilon > 0:
+            self.epsilon += epsilon
+        else:
+            self.epsilon = epsilon
+        flip_indices = np.random.rand(self.size) < (1 / (np.exp(epsilon) + 1))
+        self.bit_array = np.logical_xor(self.bit_array, flip_indices)
+    
     def to_json(self) -> dict:
         """
         Convert the Bloom Filter to a JSON-serializable dictionary.
@@ -384,7 +502,7 @@ class BloomFilter(BaseSketch):
             "hash_count": self.hash_count,
             "bit_array": self.bit_array.tolist(),
             "hash_functions": self.hash_functions.to_json(),
-            "diff_privacy": self.diff_privacy
+            "epsilon": self.epsilon
         }
     
     def __eq__(self, other):

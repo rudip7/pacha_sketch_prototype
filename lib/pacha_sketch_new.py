@@ -34,6 +34,9 @@ from itertools import product
 from .sketches import BaseSketch, CountMinSketch, BloomFilter
 from .encoders import BAdicRange, BAdicCube, NumericRange, minimal_b_adic_cover, sort_b_adic_ranges, minimal_spatial_b_adic_cover, get_hilbert_ranges
 
+from typing import List, Tuple, Dict, Any, Set
+
+
 __all__ = ["PachaSketch", "ADTree", "CMParameters", "BFParameters", "build_pacha_sketch_uniform_size"]
 
 class ADTree:
@@ -49,7 +52,7 @@ class ADTree:
                 self.possible_values.append(set(value_sets))
             self.names = json_dict["names"]
 
-    def add_dimension(self, possible_values: set[Any], name: str = None):
+    def add_dimension(self, possible_values: Set[Any], name: str = None):
         if not isinstance(possible_values, set):
             raise TypeError("Possible values must be a set.")
         self.possible_values.append(possible_values)
@@ -70,7 +73,7 @@ class ADTree:
             mappings.append(tuple(mapping))
         return mappings
     
-    def get_relevant_nodes(self, predicates: list[set[Any]], for_query=False) -> list[tuple]:
+    def get_relevant_nodes(self, predicates: List[Set[Any]], for_query=False) -> list[tuple]:
         if len(predicates) != self.num_dimensions:
             raise ValueError("Predicates length does not match the number of dimensions.")
         
@@ -111,9 +114,7 @@ class ADTree:
             with open(file_path, 'wb') as f:
                 f.write(orjson.dumps(self.to_json()))
 
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, ADTree):
-            return False
+    def __eq__(self, other: ADTree) -> bool:
         return self.num_dimensions == other.num_dimensions and self.possible_values == other.possible_values
     
 
@@ -122,39 +123,40 @@ class BaseSketchParameters:
         pass
 
 class CMParameters(BaseSketchParameters):
-    def __init__(self, width: int = None, depth: int = None, eps: float = None, delta: float = None, seed: int = 7):    
-        if (width is not None and depth is not None and eps is None and delta is None) or \
-            (width is None and depth is None and eps is not None and delta is not None):
+    def __init__(self, width: int = None, depth: int = None, error_eps: float = None, delta: float = None, seed: int = 7, epsilon: float = None):    
+        if (width is not None and depth is not None and error_eps is None and delta is None) or \
+            (width is None and depth is None and error_eps is not None and delta is not None):
             self.width = width
             self.depth = depth
-            self.eps = eps
+            self.error_eps = error_eps
             self.delta = delta
-            self.seed = 7
+            self.seed = seed
+            self.epsilon = epsilon
         else:
             raise ValueError("Invalid parameters for Count-Min Sketch.")
 
     def build_sketch(self):
-        return CountMinSketch(width=self.width, depth=self.depth, eps=self.eps, delta=self.delta)
+        return CountMinSketch(width=self.width, depth=self.depth, error_eps=self.error_eps, delta=self.delta, seed=self.seed, epsilon=self.epsilon)
 
 class BFParameters(BaseSketchParameters):
-    def __init__(self, size: int =None, hash_count: int =None, n_values: int =None, p: float=None, seed:int = 7):
+    def __init__(self, size: int =None, hash_count: int =None, n_values: int =None, p: float=None, seed:int = 7, epsilon: float = None):
         if size is not None and hash_count is not None:
             self.size = size
             self.hash_count = hash_count
             self.n_values = None
             self.p = None
-            self.seed = seed
         elif n_values is not None and p is not None:
             self.size = None
             self.hash_count = None
             self.n_values = n_values
             self.p = p
-            self.seed = seed
         else:
             raise ValueError("Invalid parameters for Bloom Filter.")
+        self.seed = seed
+        self.epsilon = epsilon
 
     def build_sketch(self):
-        return BloomFilter(size=self.size, hash_count=self.hash_count, n_values=self.n_values, p=self.p)
+        return BloomFilter(size=self.size, hash_count=self.hash_count, n_values=self.n_values, p=self.p, seed=self.seed, epsilon=self.epsilon)
 
 
 class PachaSketch:
@@ -163,20 +165,21 @@ class PachaSketch:
     """
     levels: int
     num_dimensions: int
-    cat_col_map: list[int]
-    num_col_map: list[int]
-    bases: list[int]
-    base_sketches: list[BaseSketch]
+    cat_col_map: List[int]
+    num_col_map: List[int]
+    bases: List[int]
+    base_sketches: List[BaseSketch]
     ad_tree: ADTree
     cat_index: BloomFilter
     num_index: BloomFilter
-    max_values: list[float]
-    min_values: list[float]
+    max_values: List[float]
+    min_values: List[float]
 
-    def __init__(self, levels: int = None, num_dimensions: int= None, cat_col_map: list[int]= None, num_col_map: list[int]= None, 
-                 bases: list[int]= None, base_sketch_parameters: list[BaseSketchParameters]= None,
+    def __init__(self, levels: int = None, num_dimensions: int= None, cat_col_map: List[int]= None, num_col_map: List[int]= None, 
+                 bases: List[int]= None, base_sketch_parameters: List[BaseSketchParameters]= None,
                  ad_tree: ADTree= None, 
-                 cat_index_parameters: BFParameters= None, num_index_parameters: BFParameters= None, json_dict: dict = None):
+                 cat_index_parameters: BFParameters= None, num_index_parameters: BFParameters= None, 
+                 epsilon: float = None, json_dict: dict = None):
         if json_dict is None:
             assert levels is not None and num_dimensions is not None, \
                 "Levels and number of dimensions must be provided."
@@ -197,15 +200,24 @@ class PachaSketch:
             assert len(base_sketch_parameters) == levels, \
                 "The number of base sketch parameters must match the number of levels."
             
-            self.base_sketches: list[BaseSketch] = []
+            self.base_sketches: List[BaseSketch] = []
             for i in range(levels):
                 self.base_sketches.append(
                     base_sketch_parameters[i].build_sketch()
                 )
-            
+                if epsilon is not None and base_sketch_parameters[i].epsilon is None:
+                    self.base_sketches[i].add_privacy_noise(epsilon)
+            self.epsilon = epsilon
+
+            assert ad_tree is not None, "ADTree must be provided."
             self.ad_tree = ad_tree
             self.cat_index = cat_index_parameters.build_sketch()
             self.num_index = num_index_parameters.build_sketch()
+            if epsilon is not None:
+                if cat_index_parameters.epsilon is None:
+                    self.cat_index.add_privacy_noise(epsilon)
+                if num_index_parameters.epsilon is None:
+                    self.num_index.add_privacy_noise(epsilon)
 
             self.max_values = [-math.inf] * len(num_col_map)
             self.min_values = [math.inf] * len(num_col_map)
@@ -234,6 +246,7 @@ class PachaSketch:
             for i in range(len(self.min_values)):
                 if self.min_values[i] == None:
                     self.min_values[i] = math.inf
+            self.epsilon = json_dict["epsilon"] 
 
         self.cat_lock = threading.Lock()
         self.num_lock = threading.Lock()
@@ -278,7 +291,7 @@ class PachaSketch:
 
         return self
 
-    def query(self, query: list[Any], debug=False) -> int:
+    def query(self, query: List[Any], debug=False) -> int:
         assert len(query) == self.num_dimensions, \
             "Query must have the same number of dimensions as the sketch."
         cat_predicates = [query[i] for i in self.cat_col_map]
@@ -342,6 +355,32 @@ class PachaSketch:
 
         return estimate
     
+    def merge(self, other: PachaSketch) -> PachaSketch:
+        if not isinstance(other, PachaSketch):
+            raise TypeError("Can only merge with another PachaSketch.")
+        if self.levels != other.levels or self.num_dimensions != other.num_dimensions:
+            raise ValueError("PachaSketches must have the same levels and number of dimensions to merge.")
+        if self.cat_col_map != other.cat_col_map or self.num_col_map != other.num_col_map:
+            raise ValueError("PachaSketches must have the same categorical and numerical column maps to merge.")
+        if self.bases != other.bases:
+            raise ValueError("PachaSketches must have the same bases to merge.")
+        if self.ad_tree != other.ad_tree:
+            raise ValueError("PachaSketches must have the same ADTree to merge.")
+        merged_sketch = copy.deepcopy(self)
+        merged_sketch.cat_index = self.cat_index.merge(other.cat_index)
+        merged_sketch.num_index = self.num_index.merge(other.num_index)
+        merged_sketch.max_values = [max(self.max_values[i], other.max_values[i]) for i in range(len(self.max_values))]
+        merged_sketch.min_values = [min(self.min_values[i], other.min_values[i]) for i in range(len(self.min_values))]
+        
+        for i in range(self.levels):
+            merged_sketch.base_sketches[i] = self.base_sketches[i].merge(other.base_sketches[i])
+        
+        if merged_sketch.epsilon is not None and other.epsilon is not None:
+            merged_sketch.epsilon += other.epsilon
+        elif other.epsilon is not None:
+            merged_sketch.epsilon = other.epsilon
+        return merged_sketch
+    
     def update_data_frame(self, df: pd.DataFrame, workers=8):
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [
@@ -364,7 +403,8 @@ class PachaSketch:
             "num_index": self.num_index.to_json(),
             "base_sketches": [sketch.to_json() for sketch in self.base_sketches],
             "max_values": self.max_values,
-            "min_values": self.min_values
+            "min_values": self.min_values,
+            "epsilon": self.epsilon
         }
     
     def save_to_file(self, file_path: str):
@@ -391,12 +431,25 @@ class PachaSketch:
             self.max_values == other.max_values and
             self.min_values == other.min_values
         )
+    
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        del state['cat_lock']
+        del state['num_lock']
+        del state['sketch_locks']
+        return state
+    
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self.cat_lock = threading.Lock()
+        self.num_lock = threading.Lock()
+        self.sketch_locks = [threading.Lock() for _ in range(self.levels)]
         
     
 
 def build_pacha_sketch_uniform_size(
-    levels: int, num_dimensions: int, cat_col_map: list[int], num_col_map: list[int], 
-    bases: list[int], ad_tree: ADTree, cm_params: CMParameters, 
+    levels: int, num_dimensions: int, cat_col_map: List[int], num_col_map: List[int], 
+    bases: List[int], ad_tree: ADTree, cm_params: CMParameters, 
     cat_index_parameters: BFParameters, num_index_parameters: BFParameters,
     bf_params: BFParameters = None, n_sparse_levels: int = 0) -> PachaSketch:
     """
@@ -408,7 +461,7 @@ def build_pacha_sketch_uniform_size(
     if n_sparse_levels > 0 and bf_params is None:
         raise ValueError("Bloom Filter parameters must be provided for sparse levels.")
     
-    base_sketch_parameters = [cm_params] * (levels-n_sparse_levels) + [bf_params] * n_sparse_levels
+    base_sketch_parameters = [bf_params] * n_sparse_levels + [cm_params] * (levels-n_sparse_levels) 
         
     return PachaSketch(
         levels=levels,
@@ -432,7 +485,7 @@ def build_pacha_sketch_from_json_file(file_path: str) -> PachaSketch:
             json_dict = orjson.loads(data_bytes)
     else:
         with open(file_path, 'rb') as f:
-            json_dict = orjson.loads(file_path)
+            json_dict = orjson.loads(f.read())
 
     return PachaSketch(json_dict=json_dict)
 
