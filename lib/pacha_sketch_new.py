@@ -37,7 +37,9 @@ from .encoders import BAdicRange, BAdicCube, NumericRange, minimal_b_adic_cover,
 from typing import List, Tuple, Dict, Any, Set
 
 
-__all__ = ["PachaSketch", "ADTree", "CMParameters", "BFParameters", "build_pacha_sketch_uniform_size"]
+__all__ = ["PachaSketch", "ADTree", "CMParameters", "BFParameters", 
+           "build_pacha_sketch_uniform_size", "build_pacha_sketch_from_json_file",
+           "build_ad_tree_from_json_file"]
 
 class ADTree:
     def __init__(self, json_dict: dict = None):

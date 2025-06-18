@@ -21,7 +21,8 @@ from ctypes import c_int32
 from itertools import product
 
 
-__all__ = ["H3HashFunctions", "HashFunctionFamily", "BaseSketch", "CountMinSketch", "BloomFilter"]
+__all__ = ["H3HashFunctions", "HashFunctionFamily", "BaseSketch", "CountMinSketch", "BloomFilter",
+           "CountMinSketchHadamard"]
 
 
 
@@ -217,38 +218,131 @@ class CountMinSketchHadamard(BaseSketch):
     hash_functions: HashFunctionFamily
     counters: NDArray[np.int32]
     
-    def __init__(self, width: int = None, depth: int = None, error_eps: float = None, delta: float = None, epsilon: float = None, seed: int = 7, json_dict: dict = None):
+    def __init__(self, width: int = None, depth: int = None, error_eps: float = None, 
+                 delta: float = None, epsilon: float = None, seed: int = 7, 
+                 json_dict: dict = None):
         if json_dict is None:
             self.processed_elements = 0
 
-            if (width is not None and depth is not None and error_eps is None and delta is None):
+            if (width is not None and depth is not None and 
+                error_eps is None and delta is None):
                 self.width = width
                 self.depth = depth
                 self.exactCounters = False
-            elif(width is None and depth is None and error_eps is not None and delta is not None):
+            elif(width is None and depth is None and 
+                 error_eps is not None and delta is not None):
                 self.width = int(np.ceil(math.e/error_eps))
                 self.depth = int(np.ceil(np.log(1.0/delta)))
             else:
                 raise Exception("Define either a valid width and depth or a valid epsilon and delta.")
  
             self.hash_functions = HashFunctionFamily(self.depth, self.width, seed=seed)
+            self.counters = np.zeros((self.depth, self.width), dtype=int)
+            
+            assert epsilon > 0, "Differential privacy parameter must be greater than 0."
             self.epsilon = epsilon
-            if epsilon is None:
-                self.counters = np.zeros((self.depth, self.width), dtype=int)
-            else:
-                assert epsilon > 0, "Differential privacy parameter must be greater than 0."
-                noise = np.random.laplace(loc=0.0, scale=1/epsilon, size=(self.depth, self.width))
-                self.counters = np.round(noise).astype(int)
+            self.p = np.exp(self.epsilon) / (np.exp(self.epsilon) + 1)
+            self.q = 1 - self.p
+            
+            # Hadamard response setup
+            k = int(np.ceil(np.log2(self.width)))
+            hadamard_size = 2 ** k
+            self.hadamard = self._generate_hadamard(hadamard_size)[:self.width, :self.width]
+
         else:
             self.processed_elements = json_dict["processed_elements"]
             self.width = json_dict["width"]
             self.depth = json_dict["depth"]
             self.counters = np.asarray(json_dict["counters"])
             self.hash_functions = HashFunctionFamily(json_dict=json_dict["hash_functions"])
-            self.epsilon = json_dict["epsilon"]          
-        
-    
+            self.epsilon = json_dict["epsilon"]
+            self.p = json_dict["p"]
+            self.q = json_dict["q"]          
+            self.hadamard = np.asarray(json_dict["hadamard"])
 
+    def _generate_hadamard(self, n):
+        assert (n & (n - 1)) == 0, "Hadamard size must be a power of 2"
+        H = np.array([[1]])
+        while H.shape[0] < n:
+            H = np.block([[H, H], [H, -H]])
+        return H
+
+    def _hadamard_response(self, index):
+        hadamard_col = np.random.randint(0, self.width)
+        true_val = self.hadamard[index, hadamard_col]
+        flip = 1 if np.random.rand() < self.p else -1
+        return hadamard_col, true_val * flip     
+    
+    def update(self, element):
+        indices = self.hash_functions.hash_value(element)
+        for row, idx in enumerate(indices):
+            hadamard_col, val = self._hadamard_response(idx)
+            self.counters[row][hadamard_col] += val
+        self.processed_elements+=1
+
+    def query(self, element):
+        estimates = []
+        indices = self.hash_functions.hash_value(element)
+
+        for row, idx in enumerate(indices):
+            sum_h = 0
+            for j in range(self.width):
+                sum_h += self.counters[row, j] * self.hadamard[idx, j]
+            estimates.append(sum_h / (self.p - self.q))
+
+        return max(0, min(estimates))
+    
+    def merge(self, other: CountMinSketchHadamard) -> CountMinSketchHadamard:
+        """
+        Merge another CountMinSketchHadamard into this one.
+        :param other: Another CountMinSketchHadamard instance.
+        """
+        assert isinstance(other, CountMinSketchHadamard), "Can only merge with another CountMinSketchHadamard."
+        if self.width != other.width or self.depth != other.depth:
+            raise ValueError("Cannot merge CountMinSketchHadamards with different dimensions.")
+        if self.hash_functions != other.hash_functions:
+            raise ValueError("Cannot merge CountMinSketchHadamards with different hash functions.")
+        if not np.array_equal(self.hadamard, other.hadamard):
+            raise ValueError("Cannot merge CountMinSketchHadamards with different Hadamard matrices.")
+        if self.epsilon != other.epsilon:
+            raise ValueError("Cannot merge CountMinSketchHadamards with different epsilon values.")
+        
+        merged_sketch = copy.deepcopy(self)
+
+        merged_sketch.counters += other.counters
+        merged_sketch.processed_elements += other.processed_elements
+        
+        return merged_sketch
+    
+    def to_json(self):
+        return {
+            "type": "CountMinSketchHadamard",
+            "processed_elements": self.processed_elements,
+            "width": self.width,
+            "depth": self.depth,
+            "counters": self.counters.tolist(),
+            "hash_functions": self.hash_functions.to_json(),
+            "epsilon": self.epsilon,
+            "p": self.p,
+            "q": self.q,
+            "hadamard": self.hadamard.tolist()
+        }
+    
+    def __eq__(self, other):
+        if not isinstance(other, CountMinSketchHadamard):
+            return False
+        return (
+            self.width == other.width and
+            self.depth == other.depth and
+            np.array_equal(self.counters, other.counters) and
+            self.hash_functions == other.hash_functions and
+            self.processed_elements == other.processed_elements and
+            np.array_equal(self.hadamard, other.hadamard) and
+            self.epsilon == other.epsilon and
+            self.p == other.p and
+            self.q == other.q
+        )
+        
 
 class CountMinSketch(BaseSketch):
     """A basic implementation of a Count-Min sketch."""
@@ -294,20 +388,16 @@ class CountMinSketch(BaseSketch):
         
     def update(self, element):
         indices = self.hash_functions.hash_value(element)
-        temp = 0
-        for idx in indices:
-            self.counters[temp][idx]+=1
-            temp+=1
+        for row, idx in enumerate(indices):
+            self.counters[row][idx]+=1
         self.processed_elements+=1
         
     def query(self, element):
         result = math.inf
         indices = self.hash_functions.hash_value(element)
-        temp = 0
-        for idx in indices:
-            if (self.counters[temp][idx] < result):
-                result = self.counters[temp][idx]
-            temp+=1
+        for row, idx in enumerate(indices):
+            if (self.counters[row][idx] < result):
+                result = self.counters[row][idx]
         return result
     
     def merge(self, other: CountMinSketch) -> CountMinSketch:
@@ -344,20 +434,6 @@ class CountMinSketch(BaseSketch):
 
         noise = np.random.laplace(loc=0.0, scale=1/epsilon, size=self.counters.shape)
         self.counters += np.round(noise).astype(int)
-        
-    def query_interval(self, low, high):
-        result = 0
-        for val in np.arange(low, high+1):
-            result += self.query(val)
-        return result
-        
-    def query_buckets(self, buckets):
-        result = np.zeros(len(buckets))
-        i = 0
-        for b in buckets:
-            result[i] = self.query_interval(b.low, b.high)
-            i+=1
-        return result
     
     def to_json(self) -> dict:
         return {
