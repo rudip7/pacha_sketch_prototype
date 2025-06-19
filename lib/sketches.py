@@ -22,7 +22,7 @@ from itertools import product
 
 
 __all__ = ["H3HashFunctions", "HashFunctionFamily", "BaseSketch", "CountMinSketch", "BloomFilter",
-           "CountMinSketchHadamard"]
+           "CountMinSketchHadamard", "CountMinSketchLocalHashing"]
 
 
 
@@ -210,13 +210,140 @@ class BaseSketch:
         pass
 
 
+class CountMinSketchLocalHashing(BaseSketch):
+    """A Count-Min sketch implementation using Hadamard transform."""
+
+    depth: int
+    width: int
+    processed_elements: int
+    hash_functions: HashFunctionFamily
+    counters: NDArray[np.int32]
+    epsilon: float
+    p: float
+    q: float
+    
+    def __init__(self, width: int = None, depth: int = None, error_eps: float = None, 
+                 delta: float = None, epsilon: float = None, seed: int = 7, 
+                 json_dict: dict = None):
+        if json_dict is None:
+            self.processed_elements = 0
+
+            if (width is not None and depth is not None and 
+                error_eps is None and delta is None):
+                self.width = width
+                self.depth = depth
+                self.exactCounters = False
+            elif(width is None and depth is None and 
+                 error_eps is not None and delta is not None):
+                self.width = int(np.ceil(math.e/error_eps))
+                self.depth = int(np.ceil(np.log(1.0/delta)))
+            else:
+                raise Exception("Define either a valid width and depth or a valid epsilon and delta.")
+ 
+            self.hash_functions = HashFunctionFamily(self.depth, self.width, seed=seed)
+            self.counters = np.zeros((self.depth, self.width), dtype=int)
+            
+            assert epsilon > 0, "Differential privacy parameter must be greater than 0."
+            self.epsilon = epsilon
+            self.p = np.exp(self.epsilon) / (np.exp(epsilon) + width - 1)
+            self.q = 1 / self.width
+            
+        else:
+            self.processed_elements = json_dict["processed_elements"]
+            self.width = json_dict["width"]
+            self.depth = json_dict["depth"]
+            self.counters = np.asarray(json_dict["counters"])
+            self.hash_functions = HashFunctionFamily(json_dict=json_dict["hash_functions"])
+            self.epsilon = json_dict["epsilon"]
+            self.p = json_dict["p"]
+            self.q = json_dict["q"]          
+
+    def _grr_response(self, true_index):
+        if np.random.rand() < self.p:
+            return true_index
+        else:
+            alt = np.random.randint(0, self.width - 1)
+            return alt if alt < true_index else alt + 1  
+    
+    def update(self, element):
+        indices = self.hash_functions.hash_value(element)
+        for row, idx in enumerate(indices):
+            reported_col = self._grr_response(idx)
+            self.counters[row][reported_col] += 1
+        self.processed_elements+=1
+
+    def query(self, element):
+        estimates = []
+        indices = self.hash_functions.hash_value(element)
+
+        for row, idx in enumerate(indices):
+            estimate = (self.counters[row, idx] - self.processed_elements * self.q) / (self.p - self.q)
+            estimates.append(estimate)
+
+        return max(0, min(estimates))
+    
+    def merge(self, other: CountMinSketchLocalHashing) -> CountMinSketchLocalHashing:
+        """
+        Merge another CountMinSketchLocalHashing into this one.
+        :param other: Another CountMinSketchLocalHashing instance.
+        """
+        assert isinstance(other, CountMinSketchLocalHashing), "Can only merge with another CountMinSketchLocalHashing."
+        if self.width != other.width or self.depth != other.depth:
+            raise ValueError("Cannot merge CountMinSketchHadamards with different dimensions.")
+        if self.hash_functions != other.hash_functions:
+            raise ValueError("Cannot merge CountMinSketchHadamards with different hash functions.")
+        if self.epsilon != other.epsilon:
+            raise ValueError("Cannot merge CountMinSketchHadamards with different epsilon values.")
+        
+        merged_sketch = copy.deepcopy(self)
+
+        merged_sketch.counters += other.counters
+        merged_sketch.processed_elements += other.processed_elements
+        
+        return merged_sketch
+    
+    def to_json(self):
+        return {
+            "type": "CountMinSketchLocalHashing",
+            "processed_elements": self.processed_elements,
+            "width": self.width,
+            "depth": self.depth,
+            "counters": self.counters.tolist(),
+            "hash_functions": self.hash_functions.to_json(),
+            "epsilon": self.epsilon,
+            "p": self.p,
+            "q": self.q
+        }
+    
+    def __eq__(self, other):
+        if not isinstance(other, CountMinSketchHadamard):
+            return False
+        return (
+            self.width == other.width and
+            self.depth == other.depth and
+            np.array_equal(self.counters, other.counters) and
+            self.hash_functions == other.hash_functions and
+            self.processed_elements == other.processed_elements and
+            np.array_equal(self.hadamard, other.hadamard) and
+            self.epsilon == other.epsilon and
+            self.p == other.p and
+            self.q == other.q
+        )
+
+
+
 class CountMinSketchHadamard(BaseSketch):
     """A Count-Min sketch implementation using Hadamard transform."""
 
     depth: int
     width: int
     hash_functions: HashFunctionFamily
+    processed_elements: int
     counters: NDArray[np.int32]
+    epsilon: float
+    p: float
+    q: float
+    hadamard: NDArray[np.int32]
     
     def __init__(self, width: int = None, depth: int = None, error_eps: float = None, 
                  delta: float = None, epsilon: float = None, seed: int = 7, 
@@ -242,7 +369,7 @@ class CountMinSketchHadamard(BaseSketch):
             assert epsilon > 0, "Differential privacy parameter must be greater than 0."
             self.epsilon = epsilon
             self.p = np.exp(self.epsilon) / (np.exp(self.epsilon) + 1)
-            self.q = 1 - self.p
+            self.q = 1 / (np.exp(self.epsilon) + 1)
             
             # Hadamard response setup
             k = int(np.ceil(np.log2(self.width)))
@@ -351,6 +478,8 @@ class CountMinSketch(BaseSketch):
     width: int
     hash_functions: HashFunctionFamily
     counters: NDArray[np.int32]
+    epsilon: float
+    processed_elements: int
     
     def __init__(self, width: int = None, depth: int = None, error_eps: float = None, delta: float = None, epsilon: float = None, seed: int = 7, json_dict: dict = None):
         if json_dict is None:
