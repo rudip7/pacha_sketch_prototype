@@ -23,7 +23,7 @@ from hilbert import encode
 import orjson
 import gzip
 
-
+from pympler import asizeof
 
 import seaborn as sns
 import time
@@ -119,9 +119,26 @@ class ADTree:
     def __eq__(self, other: ADTree) -> bool:
         return self.num_dimensions == other.num_dimensions and self.possible_values == other.possible_values
     
+    @staticmethod
+    def from_json(file_path: str) -> ADTree:
+        """
+        Build an AD Tree from a JSON file.
+        """
+        if file_path.endswith('.gz'):
+            with gzip.open(file_path, "rb") as f:
+                data_bytes = f.read()
+                json_dict = orjson.loads(data_bytes)
+        else:
+            with open(file_path, 'rb') as f:
+                json_dict = orjson.loads(f.read())
+
+        return ADTree(json_dict=json_dict)
 
 class BaseSketchParameters:
     def build_sketch(self):
+        pass
+
+    def peek_size(self):
         pass
 
 class CMParameters(BaseSketchParameters):
@@ -136,6 +153,15 @@ class CMParameters(BaseSketchParameters):
             self.epsilon = epsilon
         else:
             raise ValueError("Invalid parameters for Count-Min Sketch.")
+
+    def peek_size(self):
+        if self.width is not None and self.depth is not None:
+            return self.width, self.depth
+        elif self.error_eps is not None and self.delta is not None:
+            # Calculate width and depth based on error_eps and delta
+            width = int(np.ceil(np.e / self.error_eps))
+            depth = int(np.ceil(np.log(1 / self.delta)))
+            return width, depth
 
     def build_sketch(self):
         return CountMinSketch(width=self.width, depth=self.depth, error_eps=self.error_eps, delta=self.delta, seed=self.seed, epsilon=self.epsilon)
@@ -156,6 +182,15 @@ class BFParameters(BaseSketchParameters):
             raise ValueError("Invalid parameters for Bloom Filter.")
         self.seed = seed
         self.epsilon = epsilon
+
+    def peek_size(self):
+        if self.size is not None and self.hash_count is not None:
+            return self.size, self.hash_count
+        elif self.n_values is not None and self.p is not None:
+            # Calculate size and hash_count based on n_values and p
+            size = BloomFilter._optimal_size(self.n_values, self.p)
+            hash_count = BloomFilter._optimal_hash_count(size, self.n_values)
+            return size, hash_count
 
     def build_sketch(self):
         return BloomFilter(size=self.size, hash_count=self.hash_count, n_values=self.n_values, p=self.p, seed=self.seed, epsilon=self.epsilon)
@@ -293,14 +328,16 @@ class PachaSketch:
 
         return self
 
-    def query(self, query: List[Any], debug=False) -> int:
+    def query(self, query: List[Any], detailed = False, debug=False) -> int:
         assert len(query) == self.num_dimensions, \
             "Query must have the same number of dimensions as the sketch."
         cat_predicates = [query[i] for i in self.cat_col_map]
         num_predicates = [query[i] for i in self.num_col_map]
         
         for i, query_d in enumerate(cat_predicates):
-            if isinstance(query_d, set):
+            if isinstance(query_d, list):
+                cat_predicates[i] = set(query_d)
+            elif isinstance(query_d, set):
                 continue
             elif isinstance(query_d, str) and query_d == "*":
                 cat_predicates[i] = {"*"}
@@ -309,7 +346,7 @@ class PachaSketch:
                 raise TypeError(f"Query predicate at index {idx} expected to be a set or '*'.")
         
         for i, query_d in enumerate(num_predicates):
-            if isinstance(query_d, tuple) and len(query_d) == 2:
+            if (isinstance(query_d, tuple) or isinstance(query_d, list)) and len(query_d) == 2:
                 if not isinstance(query_d[0], int) or not isinstance(query_d[1], int):
                     raise TypeError("Bounds must be integers.")
                 if query_d[0] > query_d[1]:
@@ -354,7 +391,14 @@ class PachaSketch:
         for region in query_regions:
             num_region = region[1]
             estimate += self.base_sketches[num_region.level].query(region)
-
+        
+        if detailed:
+            return estimate, {
+                "cat_regions": len(relevant_nodes),
+                "num_regions": len(num_regions),
+                "query_regions": len(query_regions),
+                "queries_per_level": queries_per_level
+            }
         return estimate
     
     def merge(self, other: PachaSketch) -> PachaSketch:
@@ -416,6 +460,18 @@ class PachaSketch:
         else:
             with open(file_path, 'wb') as f:
                 f.write(orjson.dumps(self.to_json()))
+
+    def get_size(self, unit: str = "MB") -> int:
+        n_bytes = asizeof.asizeof(self)
+        if unit == "MB":
+            return n_bytes / (1024 * 1024)
+        elif unit == "KB":
+            return n_bytes / 1024
+        elif unit == "B":
+            return n_bytes
+        else:            
+            raise ValueError("Unit must be 'MB', 'KB', or 'B'.")
+
     
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, PachaSketch):

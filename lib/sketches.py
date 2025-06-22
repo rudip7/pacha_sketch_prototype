@@ -20,6 +20,8 @@ import pandas as pd
 from ctypes import c_int32
 from itertools import product
 
+from pympler import asizeof
+
 
 __all__ = ["H3HashFunctions", "HashFunctionFamily", "BaseSketch", "CountMinSketch", "BloomFilter",
            "CountMinSketchHadamard", "CountMinSketchLocalHashing"]
@@ -601,7 +603,8 @@ class CountMinSketch(BaseSketch):
 
 
 class BloomFilter(BaseSketch):
-    def __init__(self, size: int =None, hash_count: int =None, n_values: int =None, p: float=None, epsilon: float = None, seed:int = 7, json_dict: dict = None):
+    def __init__(self, size: int =None, hash_count: int =None, n_values: int =None, p: float=None, epsilon: float = None, 
+                 seed:int = 7, json_dict: dict = None, ldp_oue: bool = False):
         """
         Initialize the Bloom Filter.
         :param n_values: Estimated number of elements to store
@@ -613,34 +616,52 @@ class BloomFilter(BaseSketch):
                 self.hash_count = hash_count
                 self.hash_functions = HashFunctionFamily(hash_count, size, seed=seed)
             elif n_values is not None and p is not None:
-                self.size = self._optimal_size(n_values, p)
-                self.hash_count = self._optimal_hash_count(self.size, n_values)
+                self.size = BloomFilter._optimal_size(n_values, p)
+                self.hash_count = BloomFilter._optimal_hash_count(self.size, n_values)
                 self.hash_functions = HashFunctionFamily(self.hash_count, self.size, seed=seed)
             else:
                 raise ValueError("Invalid arguments. Provide either size and hash_count or n_values and p.")
+            
+            self.ldp_oue = ldp_oue
             self.epsilon = epsilon
-            if epsilon is None:
-                self.bit_array = np.zeros(self.size, dtype=bool)
-            else:
+            if ldp_oue:
+                assert epsilon is not None and epsilon > 0, "Differential privacy parameter must be greater than 0."
+                self.p = 0.5
+                self.q = 1 / (np.exp(self.epsilon) + 1)
+                # self.p = np.exp(self.epsilon / 2) / (np.exp(self.epsilon / 2) + 1)
+                # self.q = 1 / (np.exp(self.epsilon / 2) + 1)
+                self.bit_array = np.zeros(self.size)
+            elif epsilon is not None:
                 assert epsilon > 0, "Differential privacy parameter must be greater than 0."
                 flip_prob = 1 / (np.exp(epsilon) + 1)
                 self.bit_array = np.random.rand(self.size) < flip_prob
+            else:
+                self.bit_array = np.zeros(self.size, dtype=bool)
+
             self.processed_elements = 0
         else:
             self.processed_elements = json_dict["processed_elements"]
             self.size = json_dict["size"]
             self.hash_count = json_dict["hash_count"]
-            self.bit_array = np.asarray(json_dict["bit_array"], dtype=bool)
             self.hash_functions = HashFunctionFamily(json_dict=json_dict["hash_functions"])
             self.epsilon = json_dict["epsilon"]
+            self.ldp_oue = json_dict["ldp_oue"]
+            if not self.ldp_oue:
+                self.bit_array = np.asarray(json_dict["bit_array"], dtype=bool)
+            else:
+                self.bit_array = np.asarray(json_dict["bit_array"])
+                self.p = 0.5
+                self.q = 1 / (np.exp(self.epsilon / 2) + 1)
 
-    def _optimal_size(self, n_values, p):
+    @staticmethod
+    def _optimal_size(n_values, p):
         """
         Calculate the size of the bit array for given n_values and p.
         """
         return int(math.ceil(-(n_values * math.log(p)) / (math.log(2) ** 2)))
 
-    def _optimal_hash_count(self, size, n_values):
+    @staticmethod
+    def _optimal_hash_count(size, n_values):
         """
         Calculate the optimal number of hash functions (k).
         """
@@ -651,8 +672,16 @@ class BloomFilter(BaseSketch):
         Add an item to the Bloom Filter.
         """
         indices = self.hash_functions.hash_value(element)
-        for idx in indices:
-            self.bit_array[idx] = True
+        if not self.ldp_oue:
+            for idx in indices:
+                self.bit_array[idx] = True
+        else:
+            rand_vals = np.random.rand(self.size)
+            report = rand_vals < self.q
+            for idx in indices:
+                report[idx] = True if rand_vals[idx] < self.p else False
+
+            self.bit_array += report
         self.processed_elements += 1
 
     def query(self, element) -> bool:
@@ -660,7 +689,14 @@ class BloomFilter(BaseSketch):
         Check if an item is in the Bloom Filter.
         Returns True if the item might be in the set, False if it's definitely not.
         """
-        return all(self.bit_array[hash_val] for hash_val in self.hash_functions.hash_value(element))
+        # return all(self.bit_array[hash_val] for hash_val in self.hash_functions.hash_value(element))
+        if not self.ldp_oue:
+            return all(self.bit_array[hash_val] for hash_val in self.hash_functions.hash_value(element))
+        else:
+            hash_vals = self.hash_functions.hash_value(element)
+            counts = self.bit_array[hash_vals]
+            estimates = (counts - self.processed_elements * self.q) / (self.p - self.q)
+            return all(estimates >= 1)
     
     def merge(self, other: BloomFilter) -> BloomFilter:
         """
@@ -707,7 +743,8 @@ class BloomFilter(BaseSketch):
             "hash_count": self.hash_count,
             "bit_array": self.bit_array.tolist(),
             "hash_functions": self.hash_functions.to_json(),
-            "epsilon": self.epsilon
+            "epsilon": self.epsilon,
+            "ldp_oue": self.ldp_oue
         }
     
     def __eq__(self, other):
@@ -719,5 +756,4 @@ class BloomFilter(BaseSketch):
             np.array_equal(self.bit_array, other.bit_array) and
             self.hash_functions == other.hash_functions
         )
-
-
+    
