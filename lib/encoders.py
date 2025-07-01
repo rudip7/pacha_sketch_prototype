@@ -71,6 +71,11 @@ class BAdicRange:
             f"[{self.low}, {self.high}) ; base = {self.base} ; "
             f"level = {self.level} ; index = {self.index}"
         )
+    
+    def __repr__(self):
+        return (
+            f"BAdicRange(base={self.base}, level={self.level}, index={self.index})"
+        )
 
     def __eq__(self, other):
         """
@@ -107,6 +112,11 @@ class BAdicCube:
             + "\n".join([str(r) for r in self.b_adic_ranges])
         )
     
+    def __repr__(self) -> str:
+        return (
+            f"BAdicCube(bases={self.bases}, level={self.level}, indeces={self.indeces})"
+        )
+    
     def __eq__(self, other: BAdicCube) -> bool:
         """
         Check if two b-adic cubes are equal.
@@ -134,7 +144,7 @@ class NumericRange:
         return "[ "+str(self.low)+", "+str(self.high)+" ]"
 
 
-def minimal_b_adic_cover(base, low, high, lowest_level = 0):
+def minimal_b_adic_cover(base, low, high, lowest_level = 0) -> np.ndarray[BAdicRange]:
     """
     Compute the minimal b-adic cover of the range [low, high].
     :param base: The base for the b-adic range.

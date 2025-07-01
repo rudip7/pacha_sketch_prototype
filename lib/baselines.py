@@ -27,7 +27,7 @@ from itertools import product
 from typing import List, Tuple, Dict, Any
 
 __all__ = ["Baseline", "CentralDPServer", "LDPClient", "LDPServer", "LDPEncoderGRR", \
-            "query_df", "infer_domains_and_ranges"]
+            "query_df", "infer_domains_and_ranges", "translate_query_region"]
 
 def convert_np_types(obj):
     if isinstance(obj, dict):
@@ -40,17 +40,29 @@ def convert_np_types(obj):
         return obj.item()
     else:
         return obj
+    
+def translate_query_region(region):
+    cat_predicates = []
+    for i, cat in enumerate(region[0]):
+        if cat == "*":
+            cat_predicates.append(cat)
+        else:
+            cat_predicates.append([cat])
+    num_predicates = []
+    for i, num in enumerate(region[1].b_adic_ranges):
+        num_predicates.append((num.low, num.high-1))
+    return cat_predicates + num_predicates
 
 def query_df(df: pd.DataFrame, query: List[Any]) -> int:
     mask = pd.Series([True] * len(df))
     for col, predicate in zip(df.columns, query):
         if predicate == '*':
             continue
+        elif isinstance(predicate, list) and len(predicate) == 2 and all(isinstance(x, (int, float)) for x in predicate):
+            lower, upper = predicate
+            mask &= ((df[col] >= lower) & (df[col] <= upper))
         elif isinstance(predicate, list) or isinstance(predicate, set):
             mask &= df[col].isin(predicate)
-        elif isinstance(predicate, tuple):
-            lower, upper = predicate
-            mask &= (df[col] >= lower) & (df[col] <= upper)
         else:
             raise ValueError(f"Unsupported query predicate: {predicate}")
     return int(mask.sum())

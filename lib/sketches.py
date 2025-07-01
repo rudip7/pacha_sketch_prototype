@@ -118,6 +118,12 @@ class H3HashFunctions:
         print("H3HashFunctions\nn_functions = "+str(self.n_functions)+"\nq_matrices = "+str(self.q_matrices))
 
 class HashFunctionFamily:
+    num_hashes: int
+    max_range: int
+    a_coefficients: np.ndarray
+    b_coefficients: np.ndarray
+    prime: int
+
     def __init__(self, num_hashes: int = None, max_range: int = None, seed=7, json_dict: dict = None):
         """
         Initialize a family of hash functions.
@@ -125,18 +131,18 @@ class HashFunctionFamily:
         :param max_range: Maximum range (width of CMS rows).
         :param json_dict: Optional dictionary to initialize from JSON.
         """
+        np.random.seed(seed)
         if json_dict is None:
-            random.seed(seed)
             self.num_hashes = num_hashes
             self.max_range = max_range
-            self.coefficients = [(random.randint(1, max_range), random.randint(0, max_range)) for _ in range(num_hashes)]
+            self.a_coefficients = np.random.randint(1, max_range, size=num_hashes)
+            self.b_coefficients = np.random.randint(0, max_range, size=num_hashes)
             self.prime = self._next_prime(max_range)
         else:
             self.num_hashes = json_dict["num_hashes"]
             self.max_range = json_dict["max_range"]
-            self.coefficients = []
-            for coeff in json_dict["coefficients"]:
-                self.coefficients.append(tuple(coeff))
+            self.a_coefficients = np.asarray(json_dict["a_coefficients"])
+            self.b_coefficients = np.asarray(json_dict["b_coefficients"])
             self.prime = json_dict["prime"]
     
     def _next_prime(self, n):
@@ -169,7 +175,9 @@ class HashFunctionFamily:
         :param x: Element to hash.
         :return: List of hash values.
         """
-        return [self.hash(x, i) for i in range(self.num_hashes)]
+        base_hash = hash(x)
+
+        return (self.a_coefficients * base_hash + self.b_coefficients) % self.prime % self.max_range
     
     def to_json(self) -> dict:
         """
@@ -179,17 +187,19 @@ class HashFunctionFamily:
         return {
             "num_hashes": self.num_hashes,
             "max_range": self.max_range,
-            "coefficients": self.coefficients,
+            "a_coefficients": self.a_coefficients.tolist(),
+            "b_coefficients": self.b_coefficients.tolist(),
             "prime": self.prime
         }
     
     def __eq__(self, other):
-        if not isinstance(other, HashFunctionFamily):
-            return False
+        # if not isinstance(other, HashFunctionFamily):
+        #     return False
         return (
             self.num_hashes == other.num_hashes and
             self.max_range == other.max_range and
-            self.coefficients == other.coefficients and
+            np.array_equal(self.a_coefficients, other.a_coefficients) and
+            np.array_equal(self.b_coefficients, other.b_coefficients) and
             self.prime == other.prime
         )
 
@@ -209,6 +219,9 @@ class BaseSketch:
         pass
     
     def to_json(self) -> dict:
+        pass
+
+    def get_size(self, unit: str = "MB") -> int:
         pass
 
 
@@ -502,6 +515,7 @@ class CountMinSketch(BaseSketch):
  
             # self.hash_functions = H3HashFunctions(self.depth,self.width,self.seed,self.bits)
             self.hash_functions = HashFunctionFamily(self.depth, self.width, seed=seed)
+            self.rows = np.arange(self.depth, dtype=int)
             self.epsilon = epsilon
             if epsilon is None:
                 self.counters = np.zeros((self.depth, self.width), dtype=int)
@@ -513,6 +527,7 @@ class CountMinSketch(BaseSketch):
             self.processed_elements = json_dict["processed_elements"]
             self.width = json_dict["width"]
             self.depth = json_dict["depth"]
+            self.rows = np.arange(self.depth, dtype=int)
             self.counters = np.asarray(json_dict["counters"])
             self.hash_functions = HashFunctionFamily(json_dict=json_dict["hash_functions"])
             self.epsilon = json_dict["epsilon"]          
@@ -521,14 +536,16 @@ class CountMinSketch(BaseSketch):
         indices = self.hash_functions.hash_value(element)
         for row, idx in enumerate(indices):
             self.counters[row][idx]+=1
+
         self.processed_elements+=1
         
     def query(self, element):
-        result = math.inf
         indices = self.hash_functions.hash_value(element)
+        result = math.inf
         for row, idx in enumerate(indices):
             if (self.counters[row][idx] < result):
                 result = self.counters[row][idx]
+        # result = np.min(self.counters[self.rows, indices])
         return result
     
     def merge(self, other: CountMinSketch) -> CountMinSketch:
@@ -576,6 +593,17 @@ class CountMinSketch(BaseSketch):
             "hash_functions": self.hash_functions.to_json(),
             "epsilon": self.epsilon
         }
+    
+    def get_size(self, unit: str = "MB") -> int:
+        n_bytes = self.width * self.depth * 4
+        if unit == "MB":
+            return n_bytes / (1024 * 1024)
+        elif unit == "KB":
+            return n_bytes / 1024
+        elif unit == "B":
+            return n_bytes
+        else:            
+            raise ValueError("Unit must be 'MB', 'KB', or 'B'.")
             
         
     def to_string(self, showMatrix=True):
@@ -591,8 +619,8 @@ class CountMinSketch(BaseSketch):
                 return("Count-Min Sketch\ndepth = "+str(self.depth)+" width = "+str(self.width)+" ; processed elements = "+str(self.processed_elements))
 
     def __eq__(self, other):
-        if not isinstance(other, CountMinSketch):
-            return False
+        # if not isinstance(other, CountMinSketch):
+        #     return False
         return (
             self.width == other.width and
             self.depth == other.depth and
@@ -673,8 +701,9 @@ class BloomFilter(BaseSketch):
         """
         indices = self.hash_functions.hash_value(element)
         if not self.ldp_oue:
-            for idx in indices:
-                self.bit_array[idx] = True
+            # for idx in indices:
+            #     self.bit_array[idx] = True
+            self.bit_array[indices] = True
         else:
             rand_vals = np.random.rand(self.size)
             report = rand_vals < self.q
@@ -691,12 +720,12 @@ class BloomFilter(BaseSketch):
         """
         # return all(self.bit_array[hash_val] for hash_val in self.hash_functions.hash_value(element))
         if not self.ldp_oue:
-            return all(self.bit_array[hash_val] for hash_val in self.hash_functions.hash_value(element))
+            return np.all(self.bit_array[self.hash_functions.hash_value(element)])
         else:
             hash_vals = self.hash_functions.hash_value(element)
             counts = self.bit_array[hash_vals]
             estimates = (counts - self.processed_elements * self.q) / (self.p - self.q)
-            return all(estimates >= 1)
+            return np.all(estimates >= 1)
     
     def merge(self, other: BloomFilter) -> BloomFilter:
         """
@@ -746,10 +775,21 @@ class BloomFilter(BaseSketch):
             "epsilon": self.epsilon,
             "ldp_oue": self.ldp_oue
         }
+
+    def get_size(self, unit: str = "MB") -> int:
+        n_bytes = np.ceil(self.size / 8.0)
+        if unit == "MB":
+            return n_bytes / (1024 * 1024)
+        elif unit == "KB":
+            return n_bytes / 1024
+        elif unit == "B":
+            return n_bytes
+        else:            
+            raise ValueError("Unit must be 'MB', 'KB', or 'B'.")
     
     def __eq__(self, other):
-        if not isinstance(other, BloomFilter):
-            return False
+        # if not isinstance(other, BloomFilter):
+        #     return False
         return (
             self.size == other.size and
             self.hash_count == other.hash_count and
