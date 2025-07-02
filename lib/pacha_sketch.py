@@ -260,6 +260,38 @@ class NumericalBitmap:
             return n_bytes
         else:            
             raise ValueError("Unit must be 'MB', 'KB', or 'B'.")
+        
+    def to_json(self) -> dict:
+        return {
+            "base": self.base,
+            "exponent": self.exponent,
+            "bucket_size": self.bucket_size,
+            "size_per_side": self.size_per_side,
+            "limit": self.limit,
+            "positive_bitmap": self.positive_bitmap.tolist(),
+            "negative_bitmap": self.negative_bitmap.tolist()
+        }
+    
+    def __eq__(self, other: NumericalBitmap) -> bool:
+        return (self.base == other.base and
+                self.exponent == other.exponent and
+                self.bucket_size == other.bucket_size and
+                self.size_per_side == other.size_per_side and
+                np.array_equal(self.positive_bitmap, other.positive_bitmap) and
+                np.array_equal(self.negative_bitmap, other.negative_bitmap))
+    
+    @staticmethod
+    def from_json(json_dict: dict) -> NumericalBitmap:
+        """
+        Build a NumericalBitmap from a JSON dictionary.
+        """
+        bitmap = NumericalBitmap(base=json_dict["base"], size_per_side=json_dict["size_per_side"])
+        bitmap.exponent = json_dict["exponent"]
+        bitmap.bucket_size = json_dict["bucket_size"]
+        bitmap.limit = json_dict["limit"]
+        bitmap.positive_bitmap = np.array(json_dict["positive_bitmap"], dtype=bool)
+        bitmap.negative_bitmap = np.array(json_dict["negative_bitmap"], dtype=bool)
+        return bitmap
     
             
 class BaseSketchParameters:
@@ -348,16 +380,25 @@ class PachaSketch:
     bases: List[int]
     base_sketches: List[BaseSketch]
     ad_tree: ADTree
+    numerical_bitmaps: List[NumericalBitmap] 
     cat_index: BloomFilter
     num_index: BloomFilter
+    region_index: BloomFilter
     max_values: List[float]
     min_values: List[float]
+    epsilon: float
+    bitmap_lock: List[threading.Lock]
+    cat_lock: threading.Lock
+    num_lock: threading.Lock
+    region_lock: threading.Lock
+    sketch_locks: List[threading.Lock]
+
 
     def __init__(self, levels: int = None, num_dimensions: int= None, cat_col_map: List[int]= None, num_col_map: List[int]= None, 
                  bases: List[int]= None, base_sketch_parameters: List[BaseSketchParameters]= None,
                  ad_tree: ADTree= None, 
                  cat_index_parameters: BFParameters= None, num_index_parameters: BFParameters= None, region_index_parameters: BFParameters= None, 
-                 epsilon: float = None, json_dict: dict = None):
+                 epsilon: float = None, numerical_bitmaps_size: int = 100000, json_dict: dict = None):
         if json_dict is None:
             assert levels is not None and num_dimensions is not None, \
                 "Levels and number of dimensions must be provided."
@@ -374,6 +415,10 @@ class PachaSketch:
             assert len(bases) == len(num_col_map), \
             "The number of bases must match the number of numerical columns." 
             self.bases = bases
+
+            self.numerical_bitmaps = []
+            for i in range(len(bases)):
+                self.numerical_bitmaps.append(NumericalBitmap(base=bases[i], size_per_side=numerical_bitmaps_size))
 
             assert len(base_sketch_parameters) == levels, \
                 "The number of base sketch parameters must match the number of levels."
@@ -410,6 +455,11 @@ class PachaSketch:
             self.cat_index = BloomFilter(json_dict=json_dict["cat_index"])
             self.num_index = BloomFilter(json_dict=json_dict["num_index"])
             self.region_index = BloomFilter(json_dict=json_dict["region_index"])
+
+            self.numerical_bitmaps = []
+            for bm_json in json_dict["numerical_bitmaps"]:
+                self.numerical_bitmaps.append(NumericalBitmap.from_json(bm_json))
+
             self.base_sketches = []
             for sketch_json in json_dict["base_sketches"]:
                 if sketch_json["type"] == "CountMinSketch":
@@ -428,6 +478,7 @@ class PachaSketch:
                     self.min_values[i] = math.inf
             self.epsilon = json_dict["epsilon"] 
 
+        self.bitmap_lock = [threading.Lock() for _ in range(len(self.numerical_bitmaps))]
         self.cat_lock = threading.Lock()
         self.num_lock = threading.Lock()
         self.region_lock = threading.Lock()
@@ -459,6 +510,11 @@ class PachaSketch:
 
         mapped_regions = list(product(*[cat_mappings, num_mappings]))
         
+        for i, val in enumerate(num_values):
+            if not self.numerical_bitmaps[i].query(val):
+                with self.bitmap_lock[i]:
+                    self.numerical_bitmaps[i].update(val)
+
         with self.cat_lock:
             for region in mapped_regions:
                 self.cat_index.update(region[0])
@@ -474,6 +530,49 @@ class PachaSketch:
                 self.base_sketches[region[1].level].update(region)
 
         return self
+    
+    def minimal_spatial_b_adic_cover(self, num_predicates: List[Tuple[int, int]]) -> List[BAdicCube]:
+        minimal_b_adic_covers = []
+        for i in range(len(num_predicates)):
+            cover_ranges = minimal_b_adic_cover(self.bases[i], num_predicates[i][0], num_predicates[i][1])
+            unpruned_ranges = []
+            for b_range in cover_ranges:
+                if self.numerical_bitmaps[i].query_b_adic_range(b_range):
+                    unpruned_ranges.append(b_range)
+            minimal_b_adic_covers.append(unpruned_ranges)
+
+        combinations = product(*minimal_b_adic_covers)
+        D = []
+        cached_pruned_ranges = {}
+        for combination in combinations:
+            # Find the minimum level
+            min_level = combination[0].level
+            for i in range(len(combination)):
+                if combination[i].level < min_level:
+                    min_level = combination[i].level
+
+            # Downgrade all the ranges to the minimum level in the combination
+            new_b_adic_ranges = []
+            for i in range(len(combination)):
+                if (i, combination[i], min_level) in cached_pruned_ranges:
+                    new_b_adic_ranges.append(cached_pruned_ranges[(i, combination[i], min_level)]) 
+                    continue
+                downgraded_ranges = combination[i].downgrade_b_adic_range(min_level)
+                if len(downgraded_ranges) > 1:
+                    unpruned_ranges = []
+                    for b_range in downgraded_ranges:
+                        if self.numerical_bitmaps[i].query_b_adic_range(b_range):
+                            unpruned_ranges.append(b_range)
+                    cached_pruned_ranges[(i, combination[i], min_level)] = unpruned_ranges
+                    new_b_adic_ranges.append(unpruned_ranges)
+                else:
+                    new_b_adic_ranges.append(downgraded_ranges)
+
+            # Generate all local combinations for the new ranges and create the BAdicCubes
+            local_combinations = product(*new_b_adic_ranges)
+            for local_combination in local_combinations:
+                D.append(BAdicCube(local_combination))
+        return np.asarray(D)
     
     def get_subqueries(self, query: List[Any], detailed = False, debug=False) -> List[Tuple[Tuple, BAdicCube]]:
         assert len(query) == self.num_dimensions, \
@@ -506,7 +605,8 @@ class PachaSketch:
                 raise TypeError(f"Query predicate at index {idx} expected to be a tuple of (lower_bound, upper_bound) or '*'.")
   
         relevant_nodes = self.ad_tree.get_relevant_nodes(cat_predicates, for_query=True)
-        b_adic_cubes = minimal_spatial_b_adic_cover(num_predicates, self.bases)
+        # b_adic_cubes = minimal_spatial_b_adic_cover(num_predicates, self.bases)
+        b_adic_cubes = self.minimal_spatial_b_adic_cover(num_predicates)
 
         cat_regions = []
         for node in relevant_nodes:
@@ -525,6 +625,11 @@ class PachaSketch:
             if self.region_index.query(region):
                 query_regions.append(region)
 
+        if debug or detailed:
+            queries_per_level = [0] * self.levels
+            for region in query_regions:
+                queries_per_level[region[1].level] += 1
+        
         if debug:
             print(f"Categorical regions: {len(relevant_nodes)}")
             print(f"Indexed categorical regions: {len(cat_regions)}")
@@ -532,116 +637,31 @@ class PachaSketch:
             print(f"Indexed numerical regions: {len(num_regions)}")
             print(f"Candidate regions: {len(candidate_regions)}")
             print(f"Query regions: {len(query_regions)}")
-
-            queries_per_level = [0] * self.levels
-            for region in query_regions:
-                queries_per_level[region[1].level] += 1
             for i, count in enumerate(queries_per_level):
                 if count > 0:
                     print(f"Level {i} queries: {count}")
-
-        estimate = 0
-        for region in query_regions:
-            num_region = region[1]
-            estimate += self.base_sketches[num_region.level].query(region)
         
         if detailed:
-            if queries_per_level is None:
-                queries_per_level = [0] * self.levels
-                for region in query_regions:
-                    queries_per_level[region[1].level] += 1
-                for i, count in enumerate(queries_per_level):
-                    if count > 0:
-                        print(f"Level {i} queries: {count}")
             return query_regions, {
                 "cat_regions": len(relevant_nodes),
                 "num_regions": len(num_regions),
                 "query_regions": len(query_regions),
                 "queries_per_level": queries_per_level
             }
-        return query_regions
+        return query_regions, None
 
     def query(self, query: List[Any], detailed = False, debug=False) -> int:
-        assert len(query) == self.num_dimensions, \
-            "Query must have the same number of dimensions as the sketch."
-        cat_predicates = [query[i] for i in self.cat_col_map]
-        num_predicates = [query[i] for i in self.num_col_map]
-        
-        for i, query_d in enumerate(cat_predicates):
-            if isinstance(query_d, list):
-                cat_predicates[i] = set(query_d)
-            elif isinstance(query_d, set):
-                continue
-            elif isinstance(query_d, str) and query_d == "*":
-                cat_predicates[i] = {"*"}
-            else:
-                idx = query.index(query_d)
-                raise TypeError(f"Query predicate at index {idx} expected to be a set or '*'.")
-        
-        for i, query_d in enumerate(num_predicates):
-            if (isinstance(query_d, tuple) or isinstance(query_d, list)) and len(query_d) == 2:
-                if not isinstance(query_d[0], int) or not isinstance(query_d[1], int):
-                    raise TypeError("Bounds must be integers.")
-                if query_d[0] > query_d[1]:
-                    raise ValueError("Lower bound cannot be greater than upper bound.")
-                continue
-            elif isinstance(query_d, str) and query_d == "*":
-                num_predicates[i] = (self.min_values[i], self.max_values[i])
-            else:
-                idx = query.index(query_d)
-                raise TypeError(f"Query predicate at index {idx} expected to be a tuple of (lower_bound, upper_bound) or '*'.")
-  
-        relevant_nodes = self.ad_tree.get_relevant_nodes(cat_predicates, for_query=True)
-        b_adic_cubes = minimal_spatial_b_adic_cover(num_predicates, self.bases)
-
-        cat_regions = []
-        for node in relevant_nodes:
-            if self.cat_index.query(node):
-                cat_regions.append(node)
-        
-        num_regions = []
-        for cube in b_adic_cubes:
-            if self.num_index.query(cube):
-                num_regions.append(cube)
-
-        candidate_regions = list(product(cat_regions, num_regions))
-
-        query_regions = []
-        for region in candidate_regions:
-            if self.region_index.query(region):
-                query_regions.append(region)
-
-        queries_per_level = None
-        if debug:
-            print(f"Categorical regions: {len(relevant_nodes)}")
-            print(f"Indexed categorical regions: {len(cat_regions)}")
-            print(f"Numerical regions: {len(b_adic_cubes)}")
-            print(f"Indexed numerical regions: {len(num_regions)}")
-            print(f"Query regions: {len(query_regions)}")
-
-            queries_per_level = [0] * self.levels
-            for region in query_regions:
-                queries_per_level[region[1].level] += 1
-            for i, count in enumerate(queries_per_level):
-                if count > 0:
-                    print(f"Level {i} queries: {count}")
+        query_regions, details = self.get_subqueries(query, detailed=detailed, debug=debug)
 
         estimate = 0
         for region in query_regions:
             num_region = region[1]
             estimate += self.base_sketches[num_region.level].query(region)
-        
+        if debug:
+            print(f"Estimate: {estimate}")
+
         if detailed:
-            if queries_per_level is None:
-                queries_per_level = [0] * self.levels
-                for region in query_regions:
-                    queries_per_level[region[1].level] += 1
-            return estimate, {
-                "cat_regions": len(relevant_nodes),
-                "num_regions": len(num_regions),
-                "query_regions": len(query_regions),
-                "queries_per_level": queries_per_level
-            }
+            return estimate, details
         return estimate
     
     def merge(self, other: PachaSketch) -> PachaSketch:
@@ -658,9 +678,13 @@ class PachaSketch:
         merged_sketch = copy.deepcopy(self)
         merged_sketch.cat_index = self.cat_index.merge(other.cat_index)
         merged_sketch.num_index = self.num_index.merge(other.num_index)
+        merged_sketch.region_index = self.region_index.merge(other.region_index)
         merged_sketch.max_values = [max(self.max_values[i], other.max_values[i]) for i in range(len(self.max_values))]
         merged_sketch.min_values = [min(self.min_values[i], other.min_values[i]) for i in range(len(self.min_values))]
         
+        for i in range(len(self.numerical_bitmaps)):
+            merged_sketch.numerical_bitmaps[i] = self.numerical_bitmaps[i].merge(other.numerical_bitmaps[i])
+
         for i in range(self.levels):
             merged_sketch.base_sketches[i] = self.base_sketches[i].merge(other.base_sketches[i])
         
@@ -688,6 +712,7 @@ class PachaSketch:
             "num_col_map": self.num_col_map,
             "bases": self.bases,
             "ad_tree": self.ad_tree.to_json(),
+            "numerical_bitmaps": [bitmap.to_json() for bitmap in self.numerical_bitmaps],
             "cat_index": self.cat_index.to_json(),
             "num_index": self.num_index.to_json(),
             "region_index": self.region_index.to_json(),
@@ -709,6 +734,10 @@ class PachaSketch:
         size = self.cat_index.get_size(unit) + self.num_index.get_size(unit) + self.region_index.get_size(unit)
         for sketch in self.base_sketches:
             size += sketch.get_size(unit)
+
+        for bitmap in self.numerical_bitmaps:
+            size += bitmap.get_size(unit)
+
         if consider_ad_tree:
             size += self.ad_tree.get_size(unit)
         
@@ -727,7 +756,9 @@ class PachaSketch:
             self.ad_tree == other.ad_tree and
             self.cat_index == other.cat_index and
             self.num_index == other.num_index and
+            self.region_index == other.region_index and
             self.base_sketches == other.base_sketches and
+            self.numerical_bitmaps == other.numerical_bitmaps and
             self.max_values == other.max_values and
             self.min_values == other.min_values
         )

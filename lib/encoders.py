@@ -19,6 +19,8 @@ import json
 import pandas as pd
 from ctypes import c_int32
 from itertools import product
+from typing import List, Tuple, Dict, Any, Set
+
 
 __all__ = ["BAdicRange", "BAdicCube", "NumericRange", "minimal_b_adic_cover",
             "sort_b_adic_ranges", "minimal_spatial_b_adic_cover", "get_border_coordinates", 
@@ -44,7 +46,7 @@ class BAdicRange:
         self.low = base**level * index
         self.high = base**level * (index + 1)
 
-    def downgrade_b_adic_range(self, new_level) -> list:
+    def downgrade_b_adic_range(self, new_level) -> List[BAdicRange]:
         """
         Downgrade the b-adic range to a lower level.
         :param new_level: The new level to downgrade to.
@@ -64,7 +66,23 @@ class BAdicRange:
             temp_index += 1
 
         return new_ranges
+    
+    def downgrade_b_adic_range_indices(self, new_level) -> List[BAdicRange]:
+        """
+        Downgrade the b-adic range to a lower level.
+        :param new_level: The new level to downgrade to.
+        :return: A numpy array containing the indices of the new b-adic ranges.
+        """
+        if new_level == self.level:
+            return np.asarray([self.index])
+        if new_level > self.level:
+            raise ValueError("Cannot downgrade to a higher level.")
+        
+        level_diff = self.level - new_level
+        scale = self.base ** level_diff
+        temp_index = self.index * scale
 
+        return np.arange(temp_index, temp_index + scale, dtype=int)
     
     def __str__(self):
         return (
@@ -90,6 +108,9 @@ class BAdicRange:
             and self.index == other.index
             and self.level == other.level
         )
+    
+    def __hash__(self):
+        return hash((self.base, self.level, self.index))
             
 class BAdicCube:
 
