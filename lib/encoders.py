@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import xxhash
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import matplotlib.patches as patches
@@ -111,6 +112,30 @@ class BAdicRange:
     
     def __hash__(self):
         return hash((self.base, self.level, self.index))
+    
+    def __hash_deterministic__(self) -> int:
+        """
+        Return a deterministic hash value for the b-adic range.
+        :return: An integer hash value.
+        """
+        # h = xxhash.xxh32()
+        # # Serialize fields in a consistent way
+        # h.update(f'{self.base}|{self.level}|{self.index}'.encode('utf-8'))
+        # return h.intdigest()
+
+        x = f'{self.base}|{self.level}|{self.index}'
+        return sum((ord(c) * 31 ** i for i, c in enumerate(x))) & 0xFFFFFFFF
+    
+    @staticmethod
+    def materialize_b_adic_ranges(base: int, level: int, indeces: List[int]) -> List[BAdicRange]:
+        """
+        Materialize a list of b-adic ranges from the base, level, and indeces.
+        :param base: The base for the b-adic range.
+        :param level: The level of the b-adic range.
+        :param indeces: A list of indices for the b-adic ranges.
+        :return: A list of BAdicRange objects.
+        """
+        return [BAdicRange(base, level, index) for index in indeces]
             
 class BAdicCube:
 
@@ -155,6 +180,19 @@ class BAdicCube:
     def __hash__(self):
         return hash((tuple(self.bases), self.level, tuple(self.indeces)))
     
+    def __hash_deterministic__(self) -> int:
+        """
+        Return a deterministic hash value for the b-adic range.
+        :return: An integer hash value.
+        """
+        # h = xxhash.xxh32()
+        # # Serialize fields in a consistent way
+        # h.update(f'{self.bases}|{self.level}|{self.indeces}'.encode('utf-8'))
+        # return h.intdigest() 
+        x = f"{self.bases}|{self.level}|{self.indeces}"
+        return sum((ord(c) * 31 ** i for i, c in enumerate(x))) & 0xFFFFFFFF
+
+
 class NumericRange:
     
     def __init__(self, low, high):

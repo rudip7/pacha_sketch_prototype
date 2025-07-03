@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import xxhash
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import matplotlib.patches as patches
@@ -17,7 +18,7 @@ import seaborn as sns
 import time
 import json
 import pandas as pd
-from ctypes import c_int32
+from ctypes import Union, c_int32
 from itertools import product
 
 from pympler import asizeof
@@ -50,6 +51,37 @@ def _int32(val: Any) -> int:
         return hash_value
     return c_int32(hash_value).value
 
+def deterministic_hash(x) -> int:
+    if isinstance(x, (str, int, float)):
+        x = str(x).encode('utf-8')
+        return xxhash.xxh32(x).intdigest()
+
+    elif isinstance(x, bytes):
+        return xxhash.xxh32(x).intdigest()
+
+    elif isinstance(x, tuple):
+        h = xxhash.xxh32()
+        h.update(str(x).encode('utf-8'))
+        return h.intdigest()
+
+    elif hasattr(x, '__hash_deterministic__'):
+        return x.__hash_deterministic__()
+
+    else:
+        # Fallback: string representation
+        return xxhash.xxh32(repr(x).encode()).intdigest()
+    
+def simple_deterministic_hash(x: Union[int, str, tuple]) -> int:
+    if isinstance(x, int):
+        return x & 0xFFFFFFFF
+    elif isinstance(x, str):
+        return sum((ord(c) * 31 ** i for i, c in enumerate(x))) & 0xFFFFFFFF
+    elif isinstance(x, tuple):
+        return sum((ord(c) * 31 ** i for i, c in enumerate(str(x)))) & 0xFFFFFFFF
+    elif hasattr(x, '__hash_deterministic__'):
+        return x.__hash_deterministic__()
+    else:
+        return simple_deterministic_hash(str(x))
 
 
 class H3HashFunctions:
@@ -175,6 +207,7 @@ class HashFunctionFamily:
         :param x: Element to hash.
         :return: List of hash values.
         """
+        # base_hash = deterministic_hash(x)
         base_hash = hash(x)
 
         return (self.a_coefficients * base_hash + self.b_coefficients) % self.prime % self.max_range

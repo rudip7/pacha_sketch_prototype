@@ -25,9 +25,116 @@ from ctypes import c_int32
 from itertools import product
 
 from typing import List, Tuple, Dict, Any
+from .pacha_sketch import PachaSketch
+from .encoders import BAdicCube, BAdicRange
 
 __all__ = ["Baseline", "CentralDPServer", "LDPClient", "LDPServer", "LDPEncoderGRR", \
             "query_df", "infer_domains_and_ranges", "translate_query_region"]
+
+
+def check_accruracy(sketch: PachaSketch, df: pd.DataFrame, query_regions: List[List[Any]], level:int = None):
+    if level is None:
+        query_regions_level = query_regions
+    else:
+        query_regions_level = [region for region in query_regions if region[1].level == level]
+    estimates = []
+    print("Estimating with sketch...")
+    for region in tqdm(query_regions_level, desc="Sketch Query"):
+        num_region = region[1]
+        estimates.append(sketch.base_sketches[num_region.level].query(region))
+    estimates = np.asarray(estimates)
+
+    true_counts = []
+    print("Computing true counts...")
+    for region in tqdm(query_regions_level, desc="True Count"):
+        true_counts.append(query_df(df, translate_query_region(region)))
+    true_counts = np.asarray(true_counts)
+
+    abs_errors = np.abs(estimates - true_counts)
+    rel_errors = abs_errors / len(df)
+
+    print(f"Level {level}")
+    print(f"Mean Abs Error: {np.mean(abs_errors)}, Mean Rel Error: {np.mean(rel_errors)}")
+    print(f"Max Abs Error: {np.max(abs_errors)}, Max Rel Error: {np.max(rel_errors)}")
+    print(f"Min Abs Error: {np.min(abs_errors)}, Min Rel Error: {np.min(rel_errors)}")
+    print(f"Correct estimates: {np.sum(abs_errors == 0)}")
+
+    return estimates, true_counts, abs_errors, rel_errors
+
+def evaluate_queries_baselines(df: pd.DataFrame, queries: list, baseline: Baseline, path_to_file: str = None):
+    print("Computing true counts...")
+    true_counts = []
+    for query in tqdm(queries, desc="True Count"):
+        true_counts.append(query_df(df, query))
+    true_counts = np.asarray(true_counts)
+    
+    print("Computing estimates...")
+    estimates = []
+    for query in tqdm(queries, desc="Estimates"):
+        est = baseline.query(query)
+        estimates.append(est)
+    
+    measurements = {
+        "true_counts": true_counts,
+        "estimates": estimates
+    }
+
+    results_df = pd.DataFrame(measurements)
+
+    results_df["absolute_error"] = np.abs(results_df["true_counts"] - results_df["estimates"])
+    results_df["normalized_error"] = results_df["absolute_error"] / len(df)
+    results_df["relative_error"] = results_df["absolute_error"] / results_df["true_counts"]
+
+    if path_to_file is not None:
+        results_df.to_csv(path_to_file, index=False)
+
+    return results_df
+
+def evaluate_queries(df: pd.DataFrame, queries: list, p_sketch: PachaSketch, path_to_file: str = None):
+    print("Computing true counts...")
+    true_counts = []
+    for query in tqdm(queries, desc="True Count"):
+        true_counts.append(query_df(df, query))
+    true_counts = np.asarray(true_counts)
+    
+    print("Computing estimates...")
+    estimates = []
+    cat_regions = []
+    num_regions = []
+    query_regions = []
+    level_queries = []
+    for i in range(p_sketch.levels):
+        level_queries.append([])
+    for query in tqdm(queries, desc="Estimates"):
+        est, details = p_sketch.query(query, detailed=True)
+        estimates.append(est)
+        cat_regions.append(details["cat_regions"])
+        num_regions.append(details["num_regions"])
+        query_regions.append(details["query_regions"])
+        for i, n_queries in enumerate(details["queries_per_level"]):
+             level_queries[i].append(n_queries)
+    
+    measurements = {
+        "true_counts": true_counts,
+        "estimates": estimates,
+        "cat_regions": cat_regions,
+        "num_regions": num_regions,
+        "query_regions": query_regions
+    }
+
+    for i, level_i in enumerate(level_queries):
+        measurements[f"level_{i}_queries"] = level_i
+
+    results_df = pd.DataFrame(measurements)
+
+    results_df["absolute_error"] = np.abs(results_df["true_counts"] - results_df["estimates"])
+    results_df["normalized_error"] = results_df["absolute_error"] / len(df)
+    results_df["relative_error"] = results_df["absolute_error"] / results_df["true_counts"]
+
+    if path_to_file is not None:
+        results_df.to_csv(path_to_file, index=False)
+
+    return results_df
 
 def convert_np_types(obj):
     if isinstance(obj, dict):
@@ -53,12 +160,42 @@ def translate_query_region(region):
         num_predicates.append((num.low, num.high-1))
     return cat_predicates + num_predicates
 
+def translate_cube_to_query(cat_predicates: list, b_adic_cube: BAdicCube):
+    query = cat_predicates.copy()
+    for b_range in b_adic_cube.b_adic_ranges:
+        query.append((b_range.low, b_range.high-1))
+    return query
+
+def filter_df(df: pd.DataFrame, query: List[Any]) -> pd.DataFrame:
+    """
+    Filters a DataFrame based on a multidimensional query.
+
+    Args:
+        df: The input DataFrame.
+        query: A list of predicates for each column. Use '*' for wildcard (no filter).
+
+    Returns:
+        A filtered DataFrame.
+    """
+    mask = pd.Series([True] * len(df))
+    for col, predicate in zip(df.columns, query):
+        if predicate == '*':
+            continue
+        elif (isinstance(predicate, tuple) or isinstance(predicate, list)) and len(predicate) == 2 and all(isinstance(x, (int, float)) for x in predicate):
+            lower, upper = predicate
+            mask &= ((df[col] >= lower) & (df[col] <= upper))
+        elif isinstance(predicate, list) or isinstance(predicate, set):
+            mask &= df[col].isin(predicate)
+        else:
+            raise ValueError(f"Unsupported query predicate: {predicate}")
+    return df[mask]
+
 def query_df(df: pd.DataFrame, query: List[Any]) -> int:
     mask = pd.Series([True] * len(df))
     for col, predicate in zip(df.columns, query):
         if predicate == '*':
             continue
-        elif isinstance(predicate, list) and len(predicate) == 2 and all(isinstance(x, (int, float)) for x in predicate):
+        elif (isinstance(predicate, tuple) or isinstance(predicate, list)) and len(predicate) == 2 and all(isinstance(x, (int, float)) for x in predicate):
             lower, upper = predicate
             mask &= ((df[col] >= lower) & (df[col] <= upper))
         elif isinstance(predicate, list) or isinstance(predicate, set):
@@ -94,10 +231,11 @@ class Baseline:
     def query(self, element: list[Any]) -> float:
         pass
 
-class CentralDPServer:
-    def __init__(self, df: pd.DataFrame, epsilon: float):
+class CentralDPServer(Baseline):
+    def __init__(self, df: pd.DataFrame, epsilon: float, per_query_epsilon: float = None):
         self.df = df
         self.remaining_budget = epsilon  # Track remaining budget
+        self.per_query_epsilon = per_query_epsilon
         self.columns = df.columns.tolist()
 
     def _apply_query(self, query):
@@ -114,11 +252,19 @@ class CentralDPServer:
             else:
                 raise ValueError(f"Unsupported query condition: {q}")
         return mask
+    
+    def query(self, query: list[Any]):
+        """Executes a multidimensional count query with Laplace noise and tracks budget."""
+        return self.query_with_budget(query=query, per_query_epsilon=self.per_query_epsilon)
 
-    def query(self, query: list[Any], per_query_epsilon: float = None):
+
+    def query_with_budget(self, query: list[Any], per_query_epsilon: float = None):
         """Executes a multidimensional count query with Laplace noise and tracks budget."""
         if per_query_epsilon is None:
-            per_query_epsilon = self.remaining_budget
+            if self.per_query_epsilon is not None:
+                per_query_epsilon = self.per_query_epsilon
+            else:
+                per_query_epsilon = self.remaining_budget
         if self.remaining_budget < per_query_epsilon:
             raise ValueError("Privacy budget exceeded.")
 
@@ -132,9 +278,10 @@ class CentralDPServer:
         return self.remaining_budget
 
 class LDPClient:
-    def __init__(self, df: pd.DataFrame, epsilon: float):
+    def __init__(self, df: pd.DataFrame, epsilon: float, per_query_epsilon: float = None):
         self.df = df
         self.remaining_budget = epsilon
+        self.per_query_epsilon = per_query_epsilon
         self.columns = df.columns.tolist()
 
     def _apply_query(self, query):
@@ -153,7 +300,10 @@ class LDPClient:
 
     def query(self, query: list[Any], per_query_epsilon: float = None):
         if per_query_epsilon is None:
-            per_query_epsilon = self.remaining_budget
+            if self.per_query_epsilon is not None:
+                per_query_epsilon = self.per_query_epsilon
+            else:
+                per_query_epsilon = self.remaining_budget
         if self.remaining_budget < per_query_epsilon:
             raise ValueError("Privacy budget exceeded.")
         
@@ -167,11 +317,12 @@ class LDPClient:
         return self.remaining_budget
 
 
-class LDPServer:
-    def __init__(self, df: pd.DataFrame, epsilon: float, number_of_partitions: int):
+class LDPServer(Baseline):
+    def __init__(self, df: pd.DataFrame, epsilon: float, number_of_partitions: int, per_query_epsilon: float = None):
         self.clients: List[LDPClient] = []
         self.epsilon = epsilon
         self.per_client_epsilon = epsilon  # total budget per client
+        self.per_query_epsilon = per_query_epsilon 
 
         partition_size = len(df) // number_of_partitions
         for i in range(number_of_partitions):
@@ -180,7 +331,10 @@ class LDPServer:
             partition_df = df.iloc[start:end].reset_index(drop=True)
             self.clients.append(LDPClient(partition_df, self.per_client_epsilon))
 
-    def query(self, query, per_query_epsilon):
+    def query(self, query: List[Any]):
+        return self.query_with_budget(query=query, per_query_epsilon=self.per_query_epsilon)
+
+    def query_with_budget(self, query: List[Any], per_query_epsilon: float = None):
         noisy_sum = 0
         for client in self.clients:
             noisy_sum += client.query(query, per_query_epsilon)
@@ -190,7 +344,7 @@ class LDPServer:
         return [client.get_remaining_budget() for client in self.clients]
 
 
-class LDPEncoderGRR:
+class LDPEncoderGRR(Baseline):
     def __init__(self, df: pd.DataFrame = None, epsilon: float = None, 
                  categorical_domains: Dict[str, List[Any]] = None, numerical_ranges: Dict[str, Tuple[float, float]] = None,
                  json_dict: Dict[str, Any] = None):

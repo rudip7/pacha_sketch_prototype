@@ -203,6 +203,55 @@ class NumericalBitmap:
             idx = -math.floor(value / self.bucket_size)-1
             return self.negative_bitmap[idx]
         
+    def prune_b_adic_indices(self, base, level, b_adic_indices: NDArray) -> NDArray:
+        assert base == self.base, "Base of the B-adic ranges must match the bitmap base."
+        positive = None
+        # Check if all values in b_adic_indices are >= 0
+        if np.all(b_adic_indices >= 0):
+            positive = True
+        elif np.all(b_adic_indices < 0):
+            positive = False
+        else:
+            raise ValueError("B-adic indices must be all positive or all negative.")
+        
+        mask = np.zeros(len(b_adic_indices), dtype=bool)
+        if level == self.exponent:
+            if positive:
+                mask = self.positive_bitmap[b_adic_indices]
+            else:
+                mask = self.negative_bitmap[-b_adic_indices - 1]
+        elif level > self.exponent:
+            # If the level of the B-adic range is greater than the exponent, we need to check if any of the buckets in the range are set.
+            level_diff = level - self.exponent
+            scale = self.base ** level_diff
+            if positive:
+                start_idx = b_adic_indices * scale
+                offsets = np.arange(scale)  # shape: (scale,)
+                ranges = start_idx[:, None] + offsets  # shape: (num_fields, scale)
+                values = self.positive_bitmap[ranges]
+                mask = np.any(values, axis=1)
+            else:
+                start_idx = (-b_adic_indices) * scale -1
+                offsets = np.arange(scale)  # shape: (scale,)
+                ranges = start_idx[:, None] + offsets  # shape: (num_fields, scale)
+                values = self.negative_bitmap[ranges]
+                mask = np.any(values, axis=1)
+        else:
+            # If the level of the B-adic range is less than the exponent, we need to check if the range is covered by the bitmap.
+            level_diff = self.exponent - level
+            scale = self.base ** level_diff
+            if positive:
+                idx = np.floor(b_adic_indices / scale).astype(int)
+                mask = self.positive_bitmap[idx]
+            else:
+                idx = -np.floor(b_adic_indices / scale).astype(int) - 1
+                mask = self.negative_bitmap[idx]
+    
+        return b_adic_indices[mask]
+            
+            
+
+        
     def query_b_adic_range(self, b_adic_range: BAdicRange) -> bool:
         assert b_adic_range.base == self.base, "Base of the B-adic range must match the bitmap base."
         if b_adic_range.level == self.exponent:
@@ -229,10 +278,10 @@ class NumericalBitmap:
             # If the level of the B-adic range is less than the exponent, we need to check if the range is covered by the bitmap.
             level_diff = self.exponent - b_adic_range.level
             if b_adic_range.index >= 0:
-                idx = b_adic_range.index // (self.base ** (level_diff))
+                idx = math.floor(b_adic_range.index / (self.base ** (level_diff)))
                 return self.positive_bitmap[idx]
             else:
-                idx = -b_adic_range.index // (self.base ** (level_diff)) - 1
+                idx = -math.floor(b_adic_range.index / (self.base ** (level_diff))) - 1
                 return self.negative_bitmap[idx]
             
     def merge(self, other: NumericalBitmap) -> NumericalBitmap:
@@ -550,6 +599,8 @@ class PachaSketch:
             for i in range(len(combination)):
                 if combination[i].level < min_level:
                     min_level = combination[i].level
+            if min_level > self.levels - 1:
+                min_level = self.levels - 1
 
             # Downgrade all the ranges to the minimum level in the combination
             new_b_adic_ranges = []
@@ -566,7 +617,7 @@ class PachaSketch:
                     cached_pruned_ranges[(i, combination[i], min_level)] = unpruned_ranges
                     new_b_adic_ranges.append(unpruned_ranges)
                 else:
-                    new_b_adic_ranges.append(downgraded_ranges)
+                    new_b_adic_ranges.append([combination[i]])
 
             # Generate all local combinations for the new ranges and create the BAdicCubes
             local_combinations = product(*new_b_adic_ranges)
