@@ -35,7 +35,8 @@ import pandas as pd
 from ctypes import c_int32
 from itertools import product
 from .sketches import BaseSketch, CountMinSketch, BloomFilter
-from .encoders import BAdicRange, BAdicCube, NumericRange, minimal_b_adic_cover, sort_b_adic_ranges, minimal_spatial_b_adic_cover, get_hilbert_ranges
+from .encoders import BAdicRange, BAdicCube, NumericRange, minimal_b_adic_cover, sort_b_adic_ranges,\
+      minimal_spatial_b_adic_cover, get_hilbert_ranges, minimal_b_adic_cover_array, downgrade_b_adic_range_indices
 
 from typing import List, Tuple, Dict, Any, Set
 
@@ -209,8 +210,46 @@ class NumericalBitmap:
             idx = -math.floor(value / self.bucket_size)-1
             return self.negative_bitmap[idx]
         
-    def prune_b_adic_indices(self, base, level, b_adic_indices: NDArray) -> NDArray:
-        assert base == self.base, "Base of the B-adic ranges must match the bitmap base."
+    def prune_b_adic_array(self, b_adic_array: np.ndarray) -> np.ndarray:
+        mask = np.zeros(len(b_adic_array), dtype=bool)
+
+        for i, (level, index) in enumerate(b_adic_array):
+            if level == self.exponent:
+                if index >= 0:
+                    if 0 <= index < len(self.positive_bitmap):
+                        mask[i] = self.positive_bitmap[index]
+                else:
+                    idx = -index - 1
+                    if 0 <= idx < len(self.negative_bitmap):
+                        mask[i] = self.negative_bitmap[idx]
+
+            elif level > self.exponent:
+                level_diff = level - self.exponent
+                scale = self.base ** level_diff
+                if index >= 0:
+                    start = index * scale
+                    end = start + scale
+                    mask[i] = np.any(self.positive_bitmap[start:end])
+                else:
+                    start = -index * scale - 1
+                    end = start + scale
+                    mask[i] = np.any(self.negative_bitmap[start:end])
+
+            else:  # level < self.exponent
+                level_diff = self.exponent - level
+                scale = self.base ** level_diff
+                idx = index // scale
+                if index >= 0:
+                    if 0 <= idx < len(self.positive_bitmap):
+                        mask[i] = self.positive_bitmap[idx]
+                else:
+                    idx = -idx - 1
+                    if 0 <= idx < len(self.negative_bitmap):
+                        mask[i] = self.negative_bitmap[idx]
+
+        return b_adic_array[mask]
+        
+    def prune_b_adic_indices(self, level, b_adic_indices: np.ndarray) -> np.ndarray:
         positive = None
         # Check if all values in b_adic_indices are >= 0
         if np.all(b_adic_indices >= 0):
@@ -252,7 +291,7 @@ class NumericalBitmap:
             else:
                 idx = -np.floor(b_adic_indices / scale).astype(int) - 1
                 mask = self.negative_bitmap[idx]
-    
+
         return b_adic_indices[mask]
             
             
@@ -644,8 +683,6 @@ class PachaSketch:
         if any(len(covers) == 0 for covers in minimal_b_adic_covers):
             return np.asarray([])
 
-        from itertools import product
-
         cached_pruned_ranges = {}
 
         def downgrade_combination(combination):
@@ -678,6 +715,52 @@ class PachaSketch:
             cubes = pool.map(make_cube, all_combinations)
 
         return np.asarray(cubes)
+    
+    def minimal_spatial_b_adic_cover_array(self, num_predicates: List[Tuple[int, int]]) -> List[BAdicCube]:
+        minimal_b_adic_covers = []
+        for i in range(len(num_predicates)):
+            cover_ranges = minimal_b_adic_cover_array(self.bases[i], num_predicates[i][0], num_predicates[i][1])
+            unpruned_ranges = self.numerical_bitmaps[i].prune_b_adic_array(cover_ranges)
+            minimal_b_adic_covers.append(unpruned_ranges)
+        
+        if any(len(covers) == 0 for covers in minimal_b_adic_covers):
+            return np.asarray([])
+        
+        cached_pruned_ranges = {}
+        def downgrade_combination(combination: np.ndarray):
+            combination = np.asarray(combination)
+            min_level = combination[:, 0].min()
+            min_level = min(min_level, self.levels - 1)
+            downgraded = []
+            for i, (level, idx) in enumerate(combination):
+                key = (i, level, idx, min_level)
+                if key in cached_pruned_ranges:
+                    downgraded.append(cached_pruned_ranges[key])
+                    continue
+                b_adic_indices = downgrade_b_adic_range_indices(base=self.bases[i], level=level, idx=idx, new_level=min_level)
+                unpruned_indices = self.numerical_bitmaps[i].prune_b_adic_indices(min_level, b_adic_indices)
+                cached_pruned_ranges[key] = unpruned_indices                
+                if len(unpruned_indices) >= 1:
+                    downgraded.append(unpruned_indices)
+                else:
+                    return [], []
+            return min_level, downgraded
+
+
+        levels = []
+        indices = []
+        for combination in product(*minimal_b_adic_covers):
+            level, downgraded = downgrade_combination(combination)
+            if len(downgraded) == 0:
+                continue
+            else:
+                mesh = np.meshgrid(*downgraded, indexing='ij')
+                combination_indices = np.stack(mesh, axis=-1).reshape(-1, len(downgraded))
+                levels.append(np.full(len(combination_indices), level))
+                indices.append(combination_indices)
+        levels = np.concatenate(levels, axis=0)
+        indices = np.concatenate(indices, axis=0)
+        return np.hstack([levels[:, None], indices])
 
     
     def get_subqueries(self, query: List[Any], detailed = False, debug=False) -> List[Tuple[Tuple, BAdicCube]]:

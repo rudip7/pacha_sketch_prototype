@@ -203,6 +203,72 @@ class NumericRange:
         return "[ "+str(self.low)+", "+str(self.high)+" ]"
 
 
+def downgrade_b_adic_range_indices(base, level, idx, new_level) -> np.ndarray:
+    """
+    Downgrade the b-adic range to a lower level.
+    :param new_level: The new level to downgrade to.
+    :return: A numpy array containing the indices of the new b-adic ranges.
+    """
+    if new_level == level:
+        return np.asarray([idx])
+    if new_level > level:
+        raise ValueError("Cannot downgrade to a higher level.")
+    
+    level_diff = level - new_level
+    scale = base ** level_diff
+    temp_index = idx * scale
+
+    return np.arange(temp_index, temp_index + scale, dtype=int)
+
+
+def minimal_b_adic_cover_array(base, low, high) -> np.ndarray[int]:
+    """
+    Compute the minimal b-adic cover of the range [low, high].
+    :param base: The base for the b-adic range.
+    :param low: The start of the range.
+    :param high: The end of the range (inclusive).
+    :return: A list of BAdicRange objects covering [low, high].
+    """
+    if base < 1:
+        raise ValueError("Base must be greater than or equal to 1.")
+
+    if base == 1:
+        return np.array([[0, i] for i in range(low, high + 1)])
+            
+    D = []
+    level = 0  # Start from the smallest level (b^0)
+    
+    # Find the b-adic intervals for the given range starting from the bounds
+    while low <= high:
+        # Check if the next level can cover exactly the value of the current low 
+        low_level_limit = math.floor(low/base**(level+1)) * base**(level+1)
+        if low_level_limit != low:
+            # When not, add as many intervals of the current level as needed to reach 
+            # the bound of the nect level
+            low_level_limit += base**(level+1)
+            while low_level_limit != low:
+                if low > high:
+                    break
+                index = math.floor(low/base**level)
+                D.append((level, index))
+                low = low + base**level
+
+        # Check if the next level can cover exactly the value of the current high
+        high_level_limit = (math.floor(high/base**(level+1))+1) * base**(level+1) -1
+        if high_level_limit != high:
+            # When not, add as many intervals of the current level as needed to reach 
+            # the bound of the nect level
+            high_level_limit -= base**(level+1)
+            while high_level_limit != high:
+                if low > high:
+                    break
+                index = math.floor(high/base**level)
+                D.append((level, index))
+                high = high - base**level
+        
+        level += 1
+    return np.array(sorted(D, key=lambda x: (x[1], x[0])))
+
 def minimal_b_adic_cover(base, low, high, lowest_level = 0) -> np.ndarray[BAdicRange]:
     """
     Compute the minimal b-adic cover of the range [low, high].
