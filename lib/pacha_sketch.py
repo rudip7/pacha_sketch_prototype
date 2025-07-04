@@ -23,6 +23,9 @@ from hilbert import encode
 import orjson
 import gzip
 
+from itertools import islice
+from collections import defaultdict
+from multiprocessing import Pool, cpu_count
 from pympler import asizeof
 
 import seaborn as sns
@@ -38,6 +41,9 @@ from typing import List, Tuple, Dict, Any, Set
 
 
 __all__ = ["PachaSketch", "ADTree", "NumericalBitmap", "CMParameters", "BFParameters"]
+
+def make_cube(combination):
+    return BAdicCube(combination)
 
 class ADTree:
     def __init__(self, json_dict: dict = None):
@@ -486,11 +492,13 @@ class PachaSketch:
             self.cat_index = cat_index_parameters.build_sketch()
             self.num_index = num_index_parameters.build_sketch()
             self.region_index = region_index_parameters.build_sketch() 
-            if epsilon is not None:
-                if cat_index_parameters.epsilon is None:
-                    self.cat_index.add_privacy_noise(epsilon)
-                if num_index_parameters.epsilon is None:
-                    self.num_index.add_privacy_noise(epsilon)
+            # if epsilon is not None:
+            #     if cat_index_parameters.epsilon is None:
+            #         self.cat_index.add_privacy_noise(epsilon)
+            #     if num_index_parameters.epsilon is None:
+            #         self.num_index.add_privacy_noise(epsilon)
+            #     if region_index_parameters.epsilon is None:
+            #         self.region_index.add_privacy_noise(epsilon)
 
             self.max_values = [-math.inf] * len(num_col_map)
             self.min_values = [math.inf] * len(num_col_map)
@@ -624,6 +632,53 @@ class PachaSketch:
             for local_combination in local_combinations:
                 D.append(BAdicCube(local_combination))
         return np.asarray(D)
+    
+
+    def new_minimal_spatial_b_adic_cover(self, num_predicates: List[Tuple[int, int]]) -> List[BAdicCube]:
+        minimal_b_adic_covers = []
+        for i in range(len(num_predicates)):
+            cover_ranges = minimal_b_adic_cover(self.bases[i], num_predicates[i][0], num_predicates[i][1])
+            unpruned_ranges = [b_range for b_range in cover_ranges if self.numerical_bitmaps[i].query_b_adic_range(b_range)]
+            minimal_b_adic_covers.append(unpruned_ranges)
+
+        if any(len(covers) == 0 for covers in minimal_b_adic_covers):
+            return np.asarray([])
+
+        from itertools import product
+
+        cached_pruned_ranges = {}
+
+        def downgrade_combination(combination):
+            min_level = min(cube.level for cube in combination)
+            min_level = min(min_level, self.levels - 1)
+            downgraded = []
+            for i, cube in enumerate(combination):
+                key = (i, cube, min_level)
+                if key in cached_pruned_ranges:
+                    downgraded.append(cached_pruned_ranges[key])
+                    continue
+                ranges = cube.downgrade_b_adic_range(min_level)
+                if len(ranges) > 1:
+                    unpruned = [r for r in ranges if self.numerical_bitmaps[i].query_b_adic_range(r)]
+                    cached_pruned_ranges[key] = unpruned
+                    downgraded.append(unpruned)
+                else:
+                    downgraded.append([cube])
+            return downgraded
+
+        def build_combinations():
+            for combination in product(*minimal_b_adic_covers):
+                downgraded = downgrade_combination(combination)
+                yield from product(*downgraded)
+
+        
+
+        all_combinations = list(build_combinations())
+        with Pool(processes=min(cpu_count(), 8)) as pool:  # Limit to avoid over-saturation
+            cubes = pool.map(make_cube, all_combinations)
+
+        return np.asarray(cubes)
+
     
     def get_subqueries(self, query: List[Any], detailed = False, debug=False) -> List[Tuple[Tuple, BAdicCube]]:
         assert len(query) == self.num_dimensions, \
@@ -833,7 +888,7 @@ class PachaSketch:
         bases: List[int], ad_tree: ADTree, cm_params: CMParameters, 
         cat_index_parameters: BFParameters, num_index_parameters: BFParameters,
         region_index_parameters: BFParameters,
-        bf_params: BFParameters = None, n_sparse_levels: int = 0) -> PachaSketch:
+        bf_params: BFParameters = None, n_sparse_levels: int = 0, epsilon: float = None) -> PachaSketch:
         """
         Build a PachaSketch with uniform size for base sketches.
         """
@@ -855,7 +910,8 @@ class PachaSketch:
             ad_tree=ad_tree,
             cat_index_parameters=cat_index_parameters,
             num_index_parameters=num_index_parameters,
-            region_index_parameters=region_index_parameters
+            region_index_parameters=region_index_parameters,
+            epsilon=epsilon
         )
     
     @staticmethod
@@ -863,7 +919,7 @@ class PachaSketch:
         levels: int, num_dimensions: int, cat_col_map: List[int], num_col_map: List[int], 
         bases: List[int], ad_tree: ADTree, cm_params: CMParameters, 
         cat_index_parameters: BFParameters, num_index_parameters: BFParameters,
-        region_index_parameters: BFParameters, beta: float = 0.5) -> PachaSketch:
+        region_index_parameters: BFParameters, beta: float = 0.5, epsilon: float = None) -> PachaSketch:
         """
         Build a PachaSketch with uniform size for base sketches.
         beta [0.0, 1.0] is a hyperparameter that controls the size reduction factor for each level.

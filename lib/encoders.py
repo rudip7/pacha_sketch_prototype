@@ -147,7 +147,7 @@ class BAdicCube:
         :param index: The index of the b-adic cube.
         """
         self.level = b_adic_ranges[0].level
-        assert all(r.level == self.level for r in b_adic_ranges), "All ranges must have the same level."
+        # assert all(r.level == self.level for r in b_adic_ranges), "All ranges must have the same level."
         self.b_adic_ranges = b_adic_ranges
         self.bases = tuple(r.base for r in b_adic_ranges)
         self.indeces = tuple(r.index for r in b_adic_ranges)

@@ -212,6 +212,26 @@ class HashFunctionFamily:
 
         return (self.a_coefficients * base_hash + self.b_coefficients) % self.prime % self.max_range
     
+    def hash_values_batch(self, elements: list) -> np.ndarray:
+        """
+        Vectorized computation of hash values for a list of elements.
+
+        :param elements: List of elements to hash.
+        :return: 2D NumPy array of shape (len(elements), num_hashes), each row contains hash indices for one element.
+        """
+        # Step 1: Compute base hashes for all elements
+        base_hashes = np.array([hash(x) for x in elements])  # shape: (n_elements,)
+
+        # Step 2: Compute all hash values using broadcasting
+        # Shapes:
+        #   base_hashes[:, None]        → (n_elements, 1)
+        #   self.a_coefficients[None, :] → (1, num_hashes)
+        # Resulting shape → (n_elements, num_hashes)
+        hash_matrix = (base_hashes[:, None] * self.a_coefficients[None, :] +
+                    self.b_coefficients[None, :]) % self.prime % self.max_range
+
+        return hash_matrix.astype(np.int32)
+
     def to_json(self) -> dict:
         """
         Convert the hash function family to a JSON-serializable dictionary.
@@ -759,7 +779,15 @@ class BloomFilter(BaseSketch):
             counts = self.bit_array[hash_vals]
             estimates = (counts - self.processed_elements * self.q) / (self.p - self.q)
             return np.all(estimates >= 1)
-    
+        
+    def query_batch(self, elements: list) -> np.ndarray:
+        """
+        Check if multiple items are in the Bloom Filter.
+        Returns a boolean array indicating presence for each item.
+        """
+        hash_matrix = self.hash_functions.hash_values_batch(elements)
+        return np.all(self.bit_array[hash_matrix], axis=1)
+        
     def merge(self, other: BloomFilter) -> BloomFilter:
         """
         Merge another Bloom Filter into this one.

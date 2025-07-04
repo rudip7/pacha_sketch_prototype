@@ -234,24 +234,19 @@ class Baseline:
 class CentralDPServer(Baseline):
     def __init__(self, df: pd.DataFrame, epsilon: float, per_query_epsilon: float = None):
         self.df = df
+        self.epsilon = epsilon
         self.remaining_budget = epsilon  # Track remaining budget
         self.per_query_epsilon = per_query_epsilon
         self.columns = df.columns.tolist()
 
-    def _apply_query(self, query):
-        """Apply multidimensional query to the dataframe."""
-        mask = pd.Series([True] * len(self.df))
-        for col, q in zip(self.columns, query):
-            if q == '*':
-                continue
-            elif isinstance(q, list) or isinstance(q, set):  # exact match list (e.g., ['UK'])
-                mask &= self.df[col].isin(q)
-            elif isinstance(q, tuple):  # range query
-                lower, upper = q
-                mask &= (self.df[col] >= lower) & (self.df[col] <= upper)
-            else:
-                raise ValueError(f"Unsupported query condition: {q}")
-        return mask
+    def reset_budget(self, epsilon: float = None, per_query_epsilon: float = None):
+        """Reset the privacy budget to a new value."""
+        if epsilon is not None:
+            self.epsilon = epsilon
+        if per_query_epsilon is not None:
+            self.per_query_epsilon = per_query_epsilon
+        self.remaining_budget = self.epsilon
+
     
     def query(self, query: list[Any]):
         """Executes a multidimensional count query with Laplace noise and tracks budget."""
@@ -265,11 +260,11 @@ class CentralDPServer(Baseline):
                 per_query_epsilon = self.per_query_epsilon
             else:
                 per_query_epsilon = self.remaining_budget
-        if self.remaining_budget < per_query_epsilon:
+        if self.remaining_budget - per_query_epsilon < 0:
             raise ValueError("Privacy budget exceeded.")
 
         self.remaining_budget -= per_query_epsilon
-        true_count = self._apply_query(query).sum()
+        true_count = query_df(self.df, query)
         scale = 1.0 / per_query_epsilon
         noisy_count = true_count + np.random.laplace(loc=0.0, scale=scale)
         return max(0, int(round(noisy_count)))
@@ -280,23 +275,19 @@ class CentralDPServer(Baseline):
 class LDPClient:
     def __init__(self, df: pd.DataFrame, epsilon: float, per_query_epsilon: float = None):
         self.df = df
+        self.epsilon = epsilon
         self.remaining_budget = epsilon
         self.per_query_epsilon = per_query_epsilon
         self.columns = df.columns.tolist()
 
-    def _apply_query(self, query):
-        mask = pd.Series([True] * len(self.df))
-        for col, q in zip(self.columns, query):
-            if q == '*':
-                continue
-            elif isinstance(q, list):
-                mask &= self.df[col].isin(q)
-            elif isinstance(q, tuple):
-                lower, upper = q
-                mask &= (self.df[col] >= lower) & (self.df[col] <= upper)
-            else:
-                raise ValueError(f"Unsupported query condition: {q}")
-        return mask
+
+    def reset_budget(self, epsilon: float = None, per_query_epsilon: float = None):
+        """Reset the privacy budget to a new value."""
+        if epsilon is not None:
+            self.epsilon = epsilon
+        if per_query_epsilon is not None:
+            self.per_query_epsilon = per_query_epsilon
+        self.remaining_budget = self.epsilon
 
     def query(self, query: list[Any], per_query_epsilon: float = None):
         if per_query_epsilon is None:
@@ -308,7 +299,7 @@ class LDPClient:
             raise ValueError("Privacy budget exceeded.")
         
         self.remaining_budget -= per_query_epsilon
-        true_count = self._apply_query(query).sum()
+        true_count = query_df(self.df, query)
         scale = 1.0 / per_query_epsilon
         noise = np.random.laplace(loc=0.0, scale=scale)
         return true_count + noise
@@ -330,6 +321,17 @@ class LDPServer(Baseline):
             end = None if i == number_of_partitions - 1 else (i + 1) * partition_size
             partition_df = df.iloc[start:end].reset_index(drop=True)
             self.clients.append(LDPClient(partition_df, self.per_client_epsilon))
+    
+    def reset_budget(self, epsilon: float = None, per_query_epsilon: float = None):
+        """Reset the privacy budget for all clients."""
+        if epsilon is not None:
+            self.epsilon = epsilon
+            self.per_client_epsilon = epsilon
+        if per_query_epsilon is not None:
+            self.per_query_epsilon = per_query_epsilon
+        
+        for client in self.clients:
+            client.reset_budget(epsilon=self.per_client_epsilon, per_query_epsilon=self.per_query_epsilon)
 
     def query(self, query: List[Any]):
         return self.query_with_budget(query=query, per_query_epsilon=self.per_query_epsilon)
