@@ -220,7 +220,10 @@ class HashFunctionFamily:
         :return: 2D NumPy array of shape (len(elements), num_hashes), each row contains hash indices for one element.
         """
         # Step 1: Compute base hashes for all elements
-        base_hashes = np.array([hash(x) for x in elements])  # shape: (n_elements,)
+        if isinstance(elements, np.ndarray):
+            base_hashes = np.array([hash(tuple(x)) for x in elements])  
+        else:
+            base_hashes = np.array([hash(x) for x in elements])  # shape: (n_elements,)
 
         # Step 2: Compute all hash values using broadcasting
         # Shapes:
@@ -263,6 +266,9 @@ class BaseSketch:
         pass
 
     def query(self, element):
+        pass
+
+    def query_batch(self, elements):
         pass
 
     def merge(self, other: BaseSketch) -> BaseSketch:
@@ -591,6 +597,29 @@ class CountMinSketch(BaseSketch):
             self.counters[row][idx]+=1
 
         self.processed_elements+=1
+
+    def update_batch(self, elements):
+        """
+        Update the count-min sketch with a batch of elements.
+        Each element is hashed with all hash functions, and the corresponding counters are incremented.
+        """
+        indices = self.hash_functions.hash_values_batch(elements)  # shape: (n_elements, num_hashes)
+        n_elements, num_hashes = indices.shape
+
+        # Transpose to shape (num_hashes, n_elements)
+        indices = indices.T  # shape: (num_hashes, n_elements)
+
+        # Create row indices (one for each hash function)
+        row_indices = np.arange(num_hashes)[:, None]  # shape: (num_hashes, 1)
+
+        # Flatten indices to 1D
+        flat_rows = np.repeat(row_indices, n_elements, axis=1).flatten()
+        flat_cols = indices.flatten()
+
+        # Use np.add.at for in-place addition with possible duplicates
+        np.add.at(self.counters, (flat_rows, flat_cols), 1)
+
+        self.processed_elements += n_elements
         
     def query(self, element):
         indices = self.hash_functions.hash_value(element)
@@ -600,6 +629,28 @@ class CountMinSketch(BaseSketch):
                 result = self.counters[row][idx]
         # result = np.min(self.counters[self.rows, indices])
         return result
+    
+    def query_batch(self, elements):
+        """
+        Query multiple elements in a batch.
+        Returns a 1D numpy array of estimated counts for each element.
+        """
+        indices = self.hash_functions.hash_values_batch(elements)  # shape: (n_elements, num_hashes)
+        n_elements, num_hashes = indices.shape
+
+        # Transpose to shape (num_hashes, n_elements) for easy row indexing
+        indices = indices.T  # shape: (num_hashes, n_elements)
+
+        # Row indices for self.counters (same for all elements)
+        row_indices = np.arange(num_hashes)[:, None]  # shape: (num_hashes, 1)
+
+        # Advanced indexing: grab counter values per (row, col)
+        values = self.counters[row_indices, indices]  # shape: (num_hashes, n_elements)
+
+        # Take the minimum count across hash functions for each element
+        # if self.epsilon > 0:
+        #     return np.mean(values, axis=0)  # shape: (n_elements,)
+        return np.min(values, axis=0)  # shape: (n_elements,)
     
     def merge(self, other: CountMinSketch) -> CountMinSketch:
         """
@@ -635,6 +686,21 @@ class CountMinSketch(BaseSketch):
 
         noise = np.random.laplace(loc=0.0, scale=1/epsilon, size=self.counters.shape)
         self.counters += np.round(noise).astype(int)
+
+    def add_privacy_noise_ldp(self, epsilon: float, n_silos: int):
+        """
+        Add Laplace noise to the counters for local differential privacy.
+        :param epsilon: Scale of the Laplace noise.
+        :param n_silos: Number of silos (users) in the local differential privacy setting.
+        """
+        assert epsilon > 0, "Differential privacy parameter must be greater than 0."
+        if self.epsilon is not None and self.epsilon > 0:
+            self.epsilon += epsilon
+        else:
+            self.epsilon = epsilon
+        for i in range(n_silos):
+            noise = np.random.laplace(loc=0.0, scale=1/epsilon, size=self.counters.shape)
+            self.counters += np.round(noise).astype(int)
     
     def to_json(self) -> dict:
         return {
@@ -766,6 +832,33 @@ class BloomFilter(BaseSketch):
             self.bit_array += report
         self.processed_elements += 1
 
+    def update_batch(self, elements):
+        """
+        Add a batch of items to the Bloom Filter.
+        Supports both standard and OUE-based LDP modes.
+        """
+        indices = self.hash_functions.hash_values_batch(elements)  # shape: (n_elements, num_hashes)
+        n_elements, num_hashes = indices.shape
+
+        if not self.ldp_oue:
+            # Flatten and set bits to True
+            flat_indices = indices.flatten()
+            self.bit_array[flat_indices] = True
+        else:
+            # Generate random values for all bits once
+            rand_vals = np.random.rand(self.size)
+            report = rand_vals < self.q
+
+            # Apply OUE encoding for all element-hash pairs
+            for i in range(n_elements):
+                for j in range(num_hashes):
+                    idx = indices[i, j]
+                    report[idx] = rand_vals[idx] < self.p
+
+            self.bit_array += report.astype(self.bit_array.dtype)
+
+        self.processed_elements += n_elements
+
     def query(self, element) -> bool:
         """
         Check if an item is in the Bloom Filter.
@@ -780,7 +873,7 @@ class BloomFilter(BaseSketch):
             estimates = (counts - self.processed_elements * self.q) / (self.p - self.q)
             return np.all(estimates >= 1)
         
-    def query_batch(self, elements: list) -> np.ndarray:
+    def query_batch(self, elements) -> np.ndarray:
         """
         Check if multiple items are in the Bloom Filter.
         Returns a boolean array indicating presence for each item.

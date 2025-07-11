@@ -27,6 +27,7 @@ from itertools import product
 from typing import List, Tuple, Dict, Any
 from .pacha_sketch import PachaSketch
 from .encoders import BAdicCube, BAdicRange
+import os
 
 __all__ = ["Baseline", "CentralDPServer", "LDPClient", "LDPServer", "LDPEncoderGRR", \
             "query_df", "infer_domains_and_ranges", "translate_query_region"]
@@ -90,46 +91,164 @@ def evaluate_queries_baselines(df: pd.DataFrame, queries: list, baseline: Baseli
 
     return results_df
 
+def query_regions_on_sketch(p_sketch: PachaSketch, unique_levels: np.ndarray, groups: List[NDArray]) -> int:
+        estimate = 0
+        for level, queries in zip(unique_levels, groups):
+            estimate += np.sum(p_sketch.base_sketches[level].query_batch(queries))
+        return estimate
+
+def evaluate_equivalent_pacha_sketches(df: pd.DataFrame, queries: list, p_sketches: List[PachaSketch], dir_path: str, file_names: List[str]):
+    if len(p_sketches) != len(file_names):
+        raise ValueError("Number of PachaSketches must match number of file names.")
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
+    
+    print("Computing true counts...")
+    true_counts = np.array([query_df(df, query) for query in tqdm(queries, desc="True Count")], dtype=np.int32)
+
+    print("Computing estimates...")
+    n_queries = len(queries)
+    n_sketches = len(p_sketches)
+    n_levels = p_sketches[0].levels
+    # Preallocate
+    estimates = np.empty((n_sketches, n_queries), dtype=np.float64)
+    relevant_nodes = np.empty((n_sketches, n_queries), dtype=np.int32)
+    cat_regions = np.empty((n_sketches, n_queries), dtype=np.int32)
+    b_adic_cubes = np.empty((n_sketches, n_queries), dtype=np.int32)
+    num_regions = np.empty((n_sketches, n_queries), dtype=np.int32)
+    candidate_regions = np.empty((n_sketches, n_queries), dtype=np.int32)
+    query_reg = np.empty((n_sketches, n_queries), dtype=np.int32)
+    level_queries = np.zeros((n_sketches, n_queries, n_levels), dtype=np.int32)
+    
+    for i, query in enumerate(tqdm(queries, desc="Estimates")):
+        p_sketch = p_sketches[0]
+        query_regions, details = p_sketches[0].get_subqueries(query, detailed=True)
+        level_col = query_regions[:, len(p_sketch.cat_col_map)]
+
+        # Sort by level
+        sorted_idx = np.argsort(level_col)
+        sorted_queries = query_regions[sorted_idx]
+        sorted_levels = level_col[sorted_idx]
+
+        # Find where the value changes
+        _, group_boundaries = np.unique(sorted_levels, return_index=True)
+
+        # Split into groups
+        groups = np.split(sorted_queries, group_boundaries[1:])
+
+        unique_levels = sorted_levels[group_boundaries].astype(int)
+        
+        for j, p_sketch in enumerate(p_sketches):
+            est = query_regions_on_sketch(p_sketch, unique_levels, groups)
+            estimates[j, i] = est
+            relevant_nodes[j, i] = details["relevant_nodes"]
+            cat_regions[j, i] = details["cat_regions"]
+            b_adic_cubes[j, i] = details["b_adic_cubes"]
+            num_regions[j, i] = details["num_regions"]
+            candidate_regions[j, i] = details["candidate_regions"]
+            query_reg[j, i] = details["query_regions"]
+            level_queries[j, i, :len(details["queries_per_level"])] = details["queries_per_level"]
+        
+    for j, p_sketch in enumerate(p_sketches):
+        measurements = {
+            "true_counts": true_counts,
+            "estimates": estimates[j],
+            "relevant_nodes": relevant_nodes[j],
+            "cat_regions": cat_regions[j],
+            "b_adic_cubes": b_adic_cubes[j],
+            "num_regions": num_regions[j],
+            "candidate_regions": candidate_regions[j],
+            "query_regions": query_reg[j]
+        }
+
+        for lvl in range(n_levels):
+            measurements[f"level_{lvl}_queries"] = level_queries[j, :, lvl]
+        
+        results_df = pd.DataFrame(measurements)
+        # Vectorized error calculations
+        results_df["absolute_error"] = np.abs(results_df["true_counts"] - results_df["estimates"])
+        results_df["normalized_error"] = results_df["absolute_error"] / len(df)
+        results_df["relative_error"] = np.divide(
+            results_df["absolute_error"],
+            results_df["true_counts"],
+            out=np.zeros_like(results_df["absolute_error"], dtype=np.float64),
+            where=results_df["true_counts"] != 0
+        )
+        results_df["total_sketch_queries"] = results_df[
+            ["relevant_nodes", "b_adic_cubes", "candidate_regions", "query_regions"]
+        ].sum(axis=1)
+
+        
+        file_name = file_names[j]
+        if not file_name.endswith('.csv'):
+            file_name += '.csv'
+        results_df.to_csv(f"{dir_path}/{file_name}", index=False)
+    
+    
+
+
 def evaluate_queries(df: pd.DataFrame, queries: list, p_sketch: PachaSketch, path_to_file: str = None):
     print("Computing true counts...")
-    true_counts = []
-    for query in tqdm(queries, desc="True Count"):
-        true_counts.append(query_df(df, query))
-    true_counts = np.asarray(true_counts)
-    
+    true_counts = np.array([query_df(df, query) for query in tqdm(queries, desc="True Count")], dtype=np.int32)
+
     print("Computing estimates...")
-    estimates = []
-    cat_regions = []
-    num_regions = []
-    query_regions = []
-    level_queries = []
-    for i in range(p_sketch.levels):
-        level_queries.append([])
-    for query in tqdm(queries, desc="Estimates"):
+    n_queries = len(queries)
+    n_levels = p_sketch.levels
+
+    # Preallocate
+    estimates = np.empty(n_queries, dtype=np.float64)
+    relevant_nodes = np.empty(n_queries, dtype=np.int32)
+    cat_regions = np.empty(n_queries, dtype=np.int32)
+    b_adic_cubes = np.empty(n_queries, dtype=np.int32)
+    num_regions = np.empty(n_queries, dtype=np.int32)
+    candidate_regions = np.empty(n_queries, dtype=np.int32)
+    query_regions = np.empty(n_queries, dtype=np.int32)
+    level_queries = np.zeros((n_queries, n_levels), dtype=np.int32)
+    runtimes = np.zeros(n_queries, dtype=np.float64)
+
+    for i, query in enumerate(tqdm(queries, desc="Estimates")):
+        start_time = time.time()
         est, details = p_sketch.query(query, detailed=True)
-        estimates.append(est)
-        cat_regions.append(details["cat_regions"])
-        num_regions.append(details["num_regions"])
-        query_regions.append(details["query_regions"])
-        for i, n_queries in enumerate(details["queries_per_level"]):
-             level_queries[i].append(n_queries)
-    
+        runtimes[i] = time.time() - start_time
+        estimates[i] = est
+        relevant_nodes[i] = details["relevant_nodes"]
+        cat_regions[i] = details["cat_regions"]
+        b_adic_cubes[i] = details["b_adic_cubes"]
+        num_regions[i] = details["num_regions"]
+        candidate_regions[i] = details["candidate_regions"]
+        query_regions[i] = details["query_regions"]
+        level_queries[i, :len(details["queries_per_level"])] = details["queries_per_level"]
+
+    # Construct dataframe in one go
     measurements = {
+        "runtimes": runtimes,
         "true_counts": true_counts,
         "estimates": estimates,
+        "relevant_nodes": relevant_nodes,
         "cat_regions": cat_regions,
+        "b_adic_cubes": b_adic_cubes,
         "num_regions": num_regions,
+        "candidate_regions": candidate_regions,
         "query_regions": query_regions
     }
 
-    for i, level_i in enumerate(level_queries):
-        measurements[f"level_{i}_queries"] = level_i
+    for lvl in range(n_levels):
+        measurements[f"level_{lvl}_queries"] = level_queries[:, lvl]
 
     results_df = pd.DataFrame(measurements)
 
+    # Vectorized error calculations
     results_df["absolute_error"] = np.abs(results_df["true_counts"] - results_df["estimates"])
     results_df["normalized_error"] = results_df["absolute_error"] / len(df)
-    results_df["relative_error"] = results_df["absolute_error"] / results_df["true_counts"]
+    results_df["relative_error"] = np.divide(
+        results_df["absolute_error"],
+        results_df["true_counts"],
+        out=np.zeros_like(results_df["absolute_error"], dtype=np.float64),
+        where=results_df["true_counts"] != 0
+    )
+    results_df["total_sketch_queries"] = results_df[
+        ["relevant_nodes", "b_adic_cubes", "candidate_regions", "query_regions"]
+    ].sum(axis=1)
 
     if path_to_file is not None:
         results_df.to_csv(path_to_file, index=False)
@@ -295,8 +414,8 @@ class LDPClient:
                 per_query_epsilon = self.per_query_epsilon
             else:
                 per_query_epsilon = self.remaining_budget
-        if self.remaining_budget < per_query_epsilon:
-            raise ValueError("Privacy budget exceeded.")
+        # if self.remaining_budget < per_query_epsilon:
+        #     raise ValueError("Privacy budget exceeded.")
         
         self.remaining_budget -= per_query_epsilon
         true_count = query_df(self.df, query)

@@ -43,6 +43,28 @@ from typing import List, Tuple, Dict, Any, Set
 
 __all__ = ["PachaSketch", "ADTree", "NumericalBitmap", "CMParameters", "BFParameters"]
 
+
+def cartesian_product(arrays):
+    """
+    Compute the Cartesian product of input 1D arrays.
+    Returns an array of shape (len(arrays[0]) * ... * len(arrays[-1]), len(arrays)).
+    """
+    # arrays = [np.asarray(a) for a in arrays]
+    mesh = np.meshgrid(*arrays, indexing='ij')
+    return np.stack(mesh, axis=-1).reshape(-1, len(arrays))
+
+def region_cross_product(cat_regions: np.ndarray, num_regions: np.ndarray) -> np.ndarray:
+    n = cat_regions.shape[0]
+    m = num_regions.shape[0]
+
+    # Repeat cat_mappings for each num_mappings row
+    cat_repeated = np.repeat(cat_regions, m, axis=0)  # shape (n*m, n_cat)
+    # Tile num_mappings for each cat_mappings row
+    num_tiled = np.tile(num_regions, (n, 1))          # shape (n*m, n_num + 1)
+
+    # Concatenate along columns
+    return np.concatenate([cat_repeated, num_tiled], axis=1)
+
 def make_cube(combination):
     return BAdicCube(combination)
 
@@ -66,7 +88,7 @@ class ADTree:
         self.names.append(name if name is not None else f"Dimension {self.num_dimensions + 1}")
         self.num_dimensions += 1
 
-    def get_mapping(self, element: tuple) -> list[tuple]:
+    def get_mapping(self, element: tuple) -> np.ndarray:
         if len(element) != self.num_dimensions:
             raise ValueError("Element length does not match the number of dimensions.")
         mappings = []
@@ -78,24 +100,27 @@ class ADTree:
             template.append(value)
             mapping = template + (["*"] * (self.num_dimensions - 1 - i))
             mappings.append(tuple(mapping))
-        return mappings
+        return np.asarray(mappings)
     
     def get_level(self, mapping: tuple) -> int:
         return self.num_dimensions - mapping.index("*") if "*" in mapping else 0
-    
-    def get_relevant_nodes(self, predicates: List[Set[Any]], for_query=False) -> list[tuple]:
+
+    def get_relevant_nodes(self, predicates: List[Set[Any]], for_query=False) -> np.ndarray:
         if len(predicates) != self.num_dimensions:
             raise ValueError("Predicates length does not match the number of dimensions.")
-        
-        if predicates == list({"*"} for _ in range(self.num_dimensions)):
-            return [tuple("*" for _ in range(self.num_dimensions))]
-        
+
+        # Quick path for all wildcards
+        if all(p == {"*"} for p in predicates):
+            return np.asarray([tuple("*" for _ in range(self.num_dimensions))])
+
+        # Identify last non-wildcard dimension
         last_predicate = self.num_dimensions - 1
         for predicate in reversed(predicates):
             if predicate != {"*"}:
                 break
             last_predicate -= 1
-        
+
+        # Materialize wildcard dimensions with possible values
         for i in range(self.num_dimensions):
             if predicates[i] == {"*"}:
                 if i < last_predicate:
@@ -103,11 +128,15 @@ class ADTree:
                 continue
             elif not predicates[i].issubset(self.possible_values[i]):
                 raise ValueError(f"Predicate {predicates[i]} at index {i} is not in the possible values.")
-        
-        relevant_nodes = list(product(*predicates))
+
+        # Use NumPy for cartesian product
+        arrays = [np.array(list(p)) for p in predicates]
+        relevant_nodes = cartesian_product(arrays)
+
         if not for_query:
-            relevant_nodes = [tuple("*" for _ in range(self.num_dimensions))] + relevant_nodes
-        return relevant_nodes   
+            relevant_nodes = np.vstack([tuple("*" for _ in range(self.num_dimensions)), relevant_nodes])
+
+        return relevant_nodes  
     
     def to_json(self) -> str:
         return {
@@ -471,15 +500,15 @@ class PachaSketch:
     num_dimensions: int
     cat_col_map: List[int]
     num_col_map: List[int]
-    bases: List[int]
+    bases: np.ndarray
     base_sketches: List[BaseSketch]
     ad_tree: ADTree
     numerical_bitmaps: List[NumericalBitmap] 
     cat_index: BloomFilter
     num_index: BloomFilter
     region_index: BloomFilter
-    max_values: List[float]
-    min_values: List[float]
+    max_values: np.ndarray
+    min_values: np.ndarray
     epsilon: float
     bitmap_lock: List[threading.Lock]
     cat_lock: threading.Lock
@@ -508,7 +537,7 @@ class PachaSketch:
 
             assert len(bases) == len(num_col_map), \
             "The number of bases must match the number of numerical columns." 
-            self.bases = bases
+            self.bases = np.asarray(bases, dtype=int)
 
             self.numerical_bitmaps = []
             for i in range(len(bases)):
@@ -539,14 +568,14 @@ class PachaSketch:
             #     if region_index_parameters.epsilon is None:
             #         self.region_index.add_privacy_noise(epsilon)
 
-            self.max_values = [-math.inf] * len(num_col_map)
-            self.min_values = [math.inf] * len(num_col_map)
+            self.max_values = np.full(len(num_col_map), -np.inf)
+            self.min_values = np.full(len(num_col_map), np.inf)
         else:
             self.levels = json_dict["levels"]
             self.num_dimensions = json_dict["num_dimensions"]
             self.cat_col_map = json_dict["cat_col_map"]
             self.num_col_map = json_dict["num_col_map"]
-            self.bases = json_dict["bases"]
+            self.bases = np.asarray(json_dict["bases"], dtype=int)
             self.ad_tree = ADTree(json_dict=json_dict["ad_tree"])
             self.cat_index = BloomFilter(json_dict=json_dict["cat_index"])
             self.num_index = BloomFilter(json_dict=json_dict["num_index"])
@@ -568,155 +597,83 @@ class PachaSketch:
             for i in range(len(self.max_values)):
                 if self.max_values[i] == None:
                     self.max_values[i] = -math.inf
+            self.max_values = np.asarray(self.max_values, dtype=int)
             self.min_values = json_dict["min_values"]
             for i in range(len(self.min_values)):
                 if self.min_values[i] == None:
                     self.min_values[i] = math.inf
+            self.min_values = np.asarray(self.min_values, dtype=int)
             self.epsilon = json_dict["epsilon"] 
 
-        self.bitmap_lock = [threading.Lock() for _ in range(len(self.numerical_bitmaps))]
-        self.cat_lock = threading.Lock()
-        self.num_lock = threading.Lock()
-        self.region_lock = threading.Lock()
-        self.sketch_locks = [threading.Lock() for _ in range(self.levels)]
+        # self.bitmap_lock = [threading.Lock() for _ in range(len(self.numerical_bitmaps))]
+        # self.cat_lock = threading.Lock()
+        # self.num_lock = threading.Lock()
+        # self.region_lock = threading.Lock()
+        # self.sketch_locks = [threading.Lock() for _ in range(self.levels)]
 
-    def get_numerical_mappings(self, element: tuple) -> list[BAdicCube]:
-        if len(element) != len(self.num_col_map):
-            raise ValueError("Element length does not match the number of numerical dimensions.")
-        for i, value in enumerate(element):
-            self.max_values[i] = max(self.max_values[i], value)
-            self.min_values[i] = min(self.min_values[i], value)
-        
-        num_mappings = []
-        for level in range(self.levels):
-            b_adic_ranges = []
-            for i, base in enumerate(self.bases):
-                b_adic_ranges.append(BAdicRange(base, level, element[i] // base**level))
-            num_mappings.append(BAdicCube(b_adic_ranges))
-        return num_mappings            
+    def get_numerical_mappings(self, element: np.ndarray) -> np.ndarray:
+        # element = np.asarray(element)
+        all_levels = np.arange(self.levels)
+        matrix = self.bases[:, None] ** all_levels[None, :]
+        cubes = np.floor(element[:, None] / matrix[0, :]).astype(int)
+        return np.column_stack([all_levels, cubes.T])            
             
 
     def update(self, element: tuple):
-        assert len(element) == self.num_dimensions, \
-            "Element must have the same number of dimensions as the sketch."
+        # assert len(element) == self.num_dimensions, \
+        #     "Element must have the same number of dimensions as the sketch."
         cat_values = tuple(element[i] for i in self.cat_col_map)
-        num_values = tuple(element[i] for i in self.num_col_map)
+        num_values = np.asarray([element[i] for i in self.num_col_map], dtype=int)
         cat_mappings = self.ad_tree.get_mapping(cat_values)
-        num_mappings = self.get_numerical_mappings(num_values)
 
-        mapped_regions = list(product(*[cat_mappings, num_mappings]))
+        max_level_idx = np.floor(num_values / self.bases ** self.levels).astype(int)
+        max_level_min = max_level_idx * self.bases ** self.levels
+        max_level_max = (max_level_idx+1) * self.bases ** self.levels - 1
+
+        self.max_values = np.max([max_level_max, self.max_values], axis=0)
+        self.min_values = np.min([max_level_min, self.min_values], axis=0)
+
+        # for i, value in enumerate(num_values):
+        #     self.max_values[i] = max(self.max_values[i], value)
+        #     self.min_values[i] = min(self.min_values[i], value)
         
         for i, val in enumerate(num_values):
             if not self.numerical_bitmaps[i].query(val):
-                with self.bitmap_lock[i]:
-                    self.numerical_bitmaps[i].update(val)
+            # with self.bitmap_lock[i]:
+                self.numerical_bitmaps[i].update(val)
 
-        with self.cat_lock:
-            for region in mapped_regions:
-                self.cat_index.update(region[0])
-        with self.num_lock:
-            for region in mapped_regions:
-                self.num_index.update(region[1])
-        with self.region_lock:
-            for region in mapped_regions:
-                self.region_index.update(region)
+        num_mappings = self.get_numerical_mappings(num_values)
+        mapped_regions = region_cross_product(cat_mappings, num_mappings)
 
-        for region in mapped_regions:
-            with self.sketch_locks[region[1].level]:
-                self.base_sketches[region[1].level].update(region)
+    # with self.cat_lock:
+        self.cat_index.update_batch(cat_mappings)
+    # with self.num_lock:
+        self.num_index.update_batch(num_mappings)
+    # with self.region_lock:
+        self.region_index.update_batch(mapped_regions)
+
+        level_col = mapped_regions[:, len(self.cat_col_map)]
+
+        # Sort by level
+        sorted_idx = np.argsort(level_col)
+        sorted_regions = mapped_regions[sorted_idx]
+        sorted_levels = level_col[sorted_idx]
+
+        # Find where the value changes
+        _, group_boundaries = np.unique(sorted_levels, return_index=True)
+
+        # Split into groups
+        groups = np.split(sorted_regions, group_boundaries[1:])
+
+        unique_levels = sorted_levels[group_boundaries].astype(int)
+
+        for level, regions in zip(unique_levels, groups):
+        # with self.sketch_locks[level]:
+            self.base_sketches[level].update_batch(regions)
 
         return self
     
-    def minimal_spatial_b_adic_cover(self, num_predicates: List[Tuple[int, int]]) -> List[BAdicCube]:
-        minimal_b_adic_covers = []
-        for i in range(len(num_predicates)):
-            cover_ranges = minimal_b_adic_cover(self.bases[i], num_predicates[i][0], num_predicates[i][1])
-            unpruned_ranges = []
-            for b_range in cover_ranges:
-                if self.numerical_bitmaps[i].query_b_adic_range(b_range):
-                    unpruned_ranges.append(b_range)
-            minimal_b_adic_covers.append(unpruned_ranges)
-
-        combinations = product(*minimal_b_adic_covers)
-        D = []
-        cached_pruned_ranges = {}
-        for combination in combinations:
-            # Find the minimum level
-            min_level = combination[0].level
-            for i in range(len(combination)):
-                if combination[i].level < min_level:
-                    min_level = combination[i].level
-            if min_level > self.levels - 1:
-                min_level = self.levels - 1
-
-            # Downgrade all the ranges to the minimum level in the combination
-            new_b_adic_ranges = []
-            for i in range(len(combination)):
-                if (i, combination[i], min_level) in cached_pruned_ranges:
-                    new_b_adic_ranges.append(cached_pruned_ranges[(i, combination[i], min_level)]) 
-                    continue
-                downgraded_ranges = combination[i].downgrade_b_adic_range(min_level)
-                if len(downgraded_ranges) > 1:
-                    unpruned_ranges = []
-                    for b_range in downgraded_ranges:
-                        if self.numerical_bitmaps[i].query_b_adic_range(b_range):
-                            unpruned_ranges.append(b_range)
-                    cached_pruned_ranges[(i, combination[i], min_level)] = unpruned_ranges
-                    new_b_adic_ranges.append(unpruned_ranges)
-                else:
-                    new_b_adic_ranges.append([combination[i]])
-
-            # Generate all local combinations for the new ranges and create the BAdicCubes
-            local_combinations = product(*new_b_adic_ranges)
-            for local_combination in local_combinations:
-                D.append(BAdicCube(local_combination))
-        return np.asarray(D)
-    
-
-    def new_minimal_spatial_b_adic_cover(self, num_predicates: List[Tuple[int, int]]) -> List[BAdicCube]:
-        minimal_b_adic_covers = []
-        for i in range(len(num_predicates)):
-            cover_ranges = minimal_b_adic_cover(self.bases[i], num_predicates[i][0], num_predicates[i][1])
-            unpruned_ranges = [b_range for b_range in cover_ranges if self.numerical_bitmaps[i].query_b_adic_range(b_range)]
-            minimal_b_adic_covers.append(unpruned_ranges)
-
-        if any(len(covers) == 0 for covers in minimal_b_adic_covers):
-            return np.asarray([])
-
-        cached_pruned_ranges = {}
-
-        def downgrade_combination(combination):
-            min_level = min(cube.level for cube in combination)
-            min_level = min(min_level, self.levels - 1)
-            downgraded = []
-            for i, cube in enumerate(combination):
-                key = (i, cube, min_level)
-                if key in cached_pruned_ranges:
-                    downgraded.append(cached_pruned_ranges[key])
-                    continue
-                ranges = cube.downgrade_b_adic_range(min_level)
-                if len(ranges) > 1:
-                    unpruned = [r for r in ranges if self.numerical_bitmaps[i].query_b_adic_range(r)]
-                    cached_pruned_ranges[key] = unpruned
-                    downgraded.append(unpruned)
-                else:
-                    downgraded.append([cube])
-            return downgraded
-
-        def build_combinations():
-            for combination in product(*minimal_b_adic_covers):
-                downgraded = downgrade_combination(combination)
-                yield from product(*downgraded)
-
-        
-
-        all_combinations = list(build_combinations())
-        with Pool(processes=min(cpu_count(), 8)) as pool:  # Limit to avoid over-saturation
-            cubes = pool.map(make_cube, all_combinations)
-
-        return np.asarray(cubes)
-    
-    def minimal_spatial_b_adic_cover_array(self, num_predicates: List[Tuple[int, int]]) -> List[BAdicCube]:
+    def minimal_spatial_b_adic_cover(self, num_predicates: List[Tuple[int, int]]) -> np.ndarray:
         minimal_b_adic_covers = []
         for i in range(len(num_predicates)):
             cover_ranges = minimal_b_adic_cover_array(self.bases[i], num_predicates[i][0], num_predicates[i][1])
@@ -754,8 +711,7 @@ class PachaSketch:
             if len(downgraded) == 0:
                 continue
             else:
-                mesh = np.meshgrid(*downgraded, indexing='ij')
-                combination_indices = np.stack(mesh, axis=-1).reshape(-1, len(downgraded))
+                combination_indices = cartesian_product(downgraded)
                 levels.append(np.full(len(combination_indices), level))
                 indices.append(combination_indices)
         levels = np.concatenate(levels, axis=0)
@@ -794,30 +750,21 @@ class PachaSketch:
                 raise TypeError(f"Query predicate at index {idx} expected to be a tuple of (lower_bound, upper_bound) or '*'.")
   
         relevant_nodes = self.ad_tree.get_relevant_nodes(cat_predicates, for_query=True)
-        # b_adic_cubes = minimal_spatial_b_adic_cover(num_predicates, self.bases)
         b_adic_cubes = self.minimal_spatial_b_adic_cover(num_predicates)
 
-        cat_regions = []
-        for node in relevant_nodes:
-            if self.cat_index.query(node):
-                cat_regions.append(node)
-        
-        num_regions = []
-        for cube in b_adic_cubes:
-            if self.num_index.query(cube):
-                num_regions.append(cube)
+        cat_regions = relevant_nodes[self.cat_index.query_batch(relevant_nodes)]
+        num_regions = b_adic_cubes[self.num_index.query_batch(b_adic_cubes)]
 
-        candidate_regions = list(product(cat_regions, num_regions))
+        candidate_regions = region_cross_product(cat_regions, num_regions)
 
-        query_regions = []
-        for region in candidate_regions:
-            if self.region_index.query(region):
-                query_regions.append(region)
+        query_regions = candidate_regions[self.region_index.query_batch(candidate_regions)]
 
         if debug or detailed:
+            level_idx = len(cat_predicates)
+            levels, counts = np.unique(query_regions[:, level_idx], return_counts=True)
             queries_per_level = [0] * self.levels
-            for region in query_regions:
-                queries_per_level[region[1].level] += 1
+            for level, count in zip(levels, counts):
+                queries_per_level[int(level)] = count
         
         if debug:
             print(f"Categorical regions: {len(relevant_nodes)}")
@@ -832,8 +779,11 @@ class PachaSketch:
         
         if detailed:
             return query_regions, {
-                "cat_regions": len(relevant_nodes),
+                "relevant_nodes": len(relevant_nodes),
+                "cat_regions": len(cat_regions),
+                "b_adic_cubes": len(b_adic_cubes),
                 "num_regions": len(num_regions),
+                "candidate_regions": len(candidate_regions),
                 "query_regions": len(query_regions),
                 "queries_per_level": queries_per_level
             }
@@ -842,10 +792,25 @@ class PachaSketch:
     def query(self, query: List[Any], detailed = False, debug=False) -> int:
         query_regions, details = self.get_subqueries(query, detailed=detailed, debug=debug)
 
+        level_col = query_regions[:, len(self.cat_col_map)]
+
+        # Sort by level
+        sorted_idx = np.argsort(level_col)
+        sorted_queries = query_regions[sorted_idx]
+        sorted_levels = level_col[sorted_idx]
+
+        # Find where the value changes
+        _, group_boundaries = np.unique(sorted_levels, return_index=True)
+
+        # Split into groups
+        groups = np.split(sorted_queries, group_boundaries[1:])
+
+        unique_levels = sorted_levels[group_boundaries].astype(int)
+
         estimate = 0
-        for region in query_regions:
-            num_region = region[1]
-            estimate += self.base_sketches[num_region.level].query(region)
+        for level, queries in zip(unique_levels, groups):
+            estimate += np.sum(self.base_sketches[level].query_batch(queries))
+        
         if debug:
             print(f"Estimate: {estimate}")
 
@@ -884,13 +849,16 @@ class PachaSketch:
         return merged_sketch
     
     def update_data_frame(self, df: pd.DataFrame, workers=8):
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = [
-                executor.submit(self.update, tuple(row))
-                for _, row in df.iterrows()
-            ]
-            for _ in tqdm(as_completed(futures), total=len(futures), desc="Updating"):
-                pass
+        # with ThreadPoolExecutor(max_workers=workers) as executor:
+        #     futures = [
+        #         executor.submit(self.update, tuple(row))
+        #         for _, row in df.iterrows()
+        #     ]
+        #     for _ in tqdm(as_completed(futures), total=len(futures), desc="Updating"):
+        #         pass
+
+        for _, row in tqdm(df.iterrows(), total=len(df), desc="Updating"):
+            self.update(row)
         return self
     
     def to_json(self) -> dict:   
@@ -899,7 +867,7 @@ class PachaSketch:
             "num_dimensions": self.num_dimensions,
             "cat_col_map": self.cat_col_map,
             "num_col_map": self.num_col_map,
-            "bases": self.bases,
+            "bases": self.bases.tolist(),
             "ad_tree": self.ad_tree.to_json(),
             "numerical_bitmaps": [bitmap.to_json() for bitmap in self.numerical_bitmaps],
             "cat_index": self.cat_index.to_json(),
@@ -954,16 +922,16 @@ class PachaSketch:
     
     def __getstate__(self):
         state = self.__dict__.copy()
-        del state['cat_lock']
-        del state['num_lock']
-        del state['sketch_locks']
+        # del state['cat_lock']
+        # del state['num_lock']
+        # del state['sketch_locks']
         return state
     
     def __setstate__(self, state):
         self.__dict__.update(state)
-        self.cat_lock = threading.Lock()
-        self.num_lock = threading.Lock()
-        self.sketch_locks = [threading.Lock() for _ in range(self.levels)]
+        # self.cat_lock = threading.Lock()
+        # self.num_lock = threading.Lock()
+        # self.sketch_locks = [threading.Lock() for _ in range(self.levels)]
 
     @staticmethod
     def build_with_uniform_size(
@@ -996,6 +964,41 @@ class PachaSketch:
             region_index_parameters=region_index_parameters,
             epsilon=epsilon
         )
+    
+    @staticmethod
+    def build_with_uniform_size_ldp(
+        levels: int, num_dimensions: int, cat_col_map: List[int], num_col_map: List[int], 
+        bases: List[int], ad_tree: ADTree, cm_params: CMParameters, 
+        cat_index_parameters: BFParameters, num_index_parameters: BFParameters,
+        region_index_parameters: BFParameters, epsilon: float, n_silos: int = 1,
+        bf_params: BFParameters = None, n_sparse_levels: int = 0) -> PachaSketch:
+        """
+        Build a PachaSketch with uniform size for base sketches and add n_silos times the DP Noise to the base sketches.
+        """
+        p_sketch = PachaSketch.build_with_uniform_size(
+            levels=levels,
+            num_dimensions=num_dimensions,
+            cat_col_map=cat_col_map,
+            num_col_map=num_col_map,
+            bases=bases,
+            ad_tree=ad_tree,
+            cm_params=cm_params,
+            cat_index_parameters=cat_index_parameters,
+            num_index_parameters=num_index_parameters,
+            region_index_parameters=region_index_parameters,
+            bf_params=bf_params,
+            n_sparse_levels=n_sparse_levels
+        )
+
+        assert epsilon > 0, "Epsilon must be greater than 0."
+        assert n_silos > 0, "Number of silos must be greater than 0."
+
+        for i in range(p_sketch.levels):
+            p_sketch.base_sketches[i].add_privacy_noise_ldp(epsilon=epsilon, n_silos=n_silos)
+
+        p_sketch.epsilon = epsilon
+        
+        return p_sketch
     
     @staticmethod
     def build_with_decreasing_size(
@@ -1043,391 +1046,5 @@ class PachaSketch:
                 json_dict = orjson.loads(f.read())
 
         return PachaSketch(json_dict=json_dict)
-
-
-class PachaSketchMatrix:
-    """
-    A PachaSketch is a multi-dimensional sketch that efficiently answers multidimensional count queries.
-    """
-    levels: int
-    num_dimensions: int
-    cat_col_map: List[int]
-    num_col_map: List[int]
-    bases: List[int]
-    base_sketches: List[List[BaseSketch]]
-    ad_tree: ADTree
-    cat_index: BloomFilter
-    num_index: BloomFilter
-    max_values: List[float]
-    min_values: List[float]
-    epsilon: float
-    cat_lock: threading.Lock
-    num_lock: threading.Lock
-    sketch_locks: List[List[threading.Lock]]
-
-    def __init__(self, levels: int = None, num_dimensions: int= None, cat_col_map: List[int]= None, num_col_map: List[int]= None, 
-                 bases: List[int]= None, base_sketch_parameters: List[BaseSketchParameters]= None,
-                 ad_tree: ADTree= None, 
-                 cat_index_parameters: BFParameters= None, num_index_parameters: BFParameters= None, 
-                 epsilon: float = None, json_dict: dict = None):
-        if json_dict is None:
-            assert levels is not None and num_dimensions is not None, \
-                "Levels and number of dimensions must be provided."
-            self.levels = levels
-            self.num_dimensions = num_dimensions
-
-            assert len(cat_col_map) + len(num_col_map) == num_dimensions, \
-                "The sum of categorical and numerical columns must equal the number of dimensions."
-            assert set(cat_col_map).union(set(num_col_map)) == set(range(num_dimensions)), \
-                "Column maps must cover all dimensions without overlap."
-            self.cat_col_map = cat_col_map
-            self.num_col_map = num_col_map
-
-            assert len(bases) == len(num_col_map), \
-            "The number of bases must match the number of numerical columns." 
-            self.bases = bases
-
-            assert len(base_sketch_parameters) == levels, \
-                "The number of base sketch parameters must match the number of levels."
-            
-            self.base_sketches: List[List[BaseSketch]] = []
-            for i in range(levels):
-                level_sketches = []
-                for j in range(len(cat_col_map)+1):
-                    level_sketches.append(
-                        base_sketch_parameters[i].build_sketch()
-                    )
-                    # if epsilon is not None and base_sketch_parameters[i].epsilon is None:
-                    #     self.base_sketches[i][j].add_privacy_noise(epsilon)
-                self.base_sketches.append(level_sketches)
-            self.epsilon = epsilon
-
-            assert ad_tree is not None, "ADTree must be provided."
-            self.ad_tree = ad_tree
-            self.cat_index = cat_index_parameters.build_sketch()
-            self.num_index = num_index_parameters.build_sketch()
-            if epsilon is not None:
-                if cat_index_parameters.epsilon is None:
-                    self.cat_index.add_privacy_noise(epsilon)
-                if num_index_parameters.epsilon is None:
-                    self.num_index.add_privacy_noise(epsilon)
-
-            self.max_values = [-math.inf] * len(num_col_map)
-            self.min_values = [math.inf] * len(num_col_map)
-        else:
-            self.levels = json_dict["levels"]
-            self.num_dimensions = json_dict["num_dimensions"]
-            self.cat_col_map = json_dict["cat_col_map"]
-            self.num_col_map = json_dict["num_col_map"]
-            self.bases = json_dict["bases"]
-            self.ad_tree = ADTree(json_dict=json_dict["ad_tree"])
-            self.cat_index = BloomFilter(json_dict=json_dict["cat_index"])
-            self.num_index = BloomFilter(json_dict=json_dict["num_index"])
-            self.base_sketches = []
-            for sketch_level in json_dict["base_sketches"]:
-                level_sketches = []
-                for sketch_json in sketch_level:
-                    if sketch_json["type"] == "CountMinSketch":
-                        level_sketches.append(CountMinSketch(json_dict=sketch_json))
-                    elif sketch_json["type"] == "BloomFilter":
-                        level_sketches.append(BloomFilter(json_dict=sketch_json))
-                    else:
-                        raise ValueError(f"Unknown sketch type: {sketch_json['type']}")
-                self.base_sketches.append(level_sketches)
-            self.max_values = json_dict["max_values"]
-            for i in range(len(self.max_values)):
-                if self.max_values[i] == None:
-                    self.max_values[i] = -math.inf
-            self.min_values = json_dict["min_values"]
-            for i in range(len(self.min_values)):
-                if self.min_values[i] == None:
-                    self.min_values[i] = math.inf
-            self.epsilon = json_dict["epsilon"] 
-
-        self.cat_lock = threading.Lock()
-        self.num_lock = threading.Lock()
-        self.sketch_locks = []
-        for _ in range(self.levels):
-            level_locks = []
-            for _ in range(len(cat_col_map) + 1):
-                level_locks.append(threading.Lock())
-            self.sketch_locks.append(level_locks)
-
-    def get_numerical_mappings(self, element: tuple) -> list[BAdicCube]:
-        if len(element) != len(self.num_col_map):
-            raise ValueError("Element length does not match the number of numerical dimensions.")
-        for i, value in enumerate(element):
-            self.max_values[i] = max(self.max_values[i], value)
-            self.min_values[i] = min(self.min_values[i], value)
-        
-        num_mappings = []
-        for level in range(self.levels):
-            b_adic_ranges = []
-            for i, base in enumerate(self.bases):
-                b_adic_ranges.append(BAdicRange(base, level, element[i] // base**level))
-            num_mappings.append(BAdicCube(b_adic_ranges))
-        return num_mappings            
-            
-
-    def update(self, element: tuple):
-        assert len(element) == self.num_dimensions, \
-            "Element must have the same number of dimensions as the sketch."
-        cat_values = tuple(element[i] for i in self.cat_col_map)
-        num_values = tuple(element[i] for i in self.num_col_map)
-        cat_mappings = self.ad_tree.get_mapping(cat_values)
-        num_mappings = self.get_numerical_mappings(num_values)
-
-        mapped_regions = list(product(*[cat_mappings, num_mappings]))
-        
-        with self.cat_lock:
-            for region in mapped_regions:
-                self.cat_index.update(region[0])
-        with self.num_lock:
-            for region in mapped_regions:
-                self.num_index.update(region[1])
-
-        for region in mapped_regions:
-            cat_level = self.ad_tree.get_level(region[0])  
-            with self.sketch_locks[region[1].level][cat_level]:
-                self.base_sketches[region[1].level][cat_level].update(region)
-
-        return self
-
-    def query(self, query: List[Any], detailed = False, debug=False) -> int:
-        assert len(query) == self.num_dimensions, \
-            "Query must have the same number of dimensions as the sketch."
-        cat_predicates = [query[i] for i in self.cat_col_map]
-        num_predicates = [query[i] for i in self.num_col_map]
-        
-        for i, query_d in enumerate(cat_predicates):
-            if isinstance(query_d, list):
-                cat_predicates[i] = set(query_d)
-            elif isinstance(query_d, set):
-                continue
-            elif isinstance(query_d, str) and query_d == "*":
-                cat_predicates[i] = {"*"}
-            else:
-                idx = query.index(query_d)
-                raise TypeError(f"Query predicate at index {idx} expected to be a set or '*'.")
-        
-        for i, query_d in enumerate(num_predicates):
-            if (isinstance(query_d, tuple) or isinstance(query_d, list)) and len(query_d) == 2:
-                if not isinstance(query_d[0], int) or not isinstance(query_d[1], int):
-                    raise TypeError("Bounds must be integers.")
-                if query_d[0] > query_d[1]:
-                    raise ValueError("Lower bound cannot be greater than upper bound.")
-                continue
-            elif isinstance(query_d, str) and query_d == "*":
-                num_predicates[i] = (self.min_values[i], self.max_values[i])
-            else:
-                idx = query.index(query_d)
-                raise TypeError(f"Query predicate at index {idx} expected to be a tuple of (lower_bound, upper_bound) or '*'.")
-  
-        relevant_nodes = self.ad_tree.get_relevant_nodes(cat_predicates, for_query=True)
-        b_adic_cubes = minimal_spatial_b_adic_cover(num_predicates, self.bases)
-
-        cat_regions:List[Tuple] = []
-        for node in relevant_nodes:
-            if self.cat_index.query(node):
-                cat_regions.append(node)
-        
-        num_regions:List[BAdicCube] = []
-        for cube in b_adic_cubes:
-            if self.num_index.query(cube):
-                num_regions.append(cube)
-
-        query_regions = list(product(cat_regions, num_regions))
-
-        if debug:
-            print(f"Categorical regions: {len(relevant_nodes)}")
-            print(f"Indexed categorical regions: {len(cat_regions)}")
-            print(f"Numerical regions: {len(b_adic_cubes)}")
-            print(f"Indexed numerical regions: {len(num_regions)}")
-            print(f"Query regions: {len(query_regions)}")
-
-            numerical_per_level = [0] * self.levels
-            for region in num_regions:
-                numerical_per_level[region.level] += 1
-            for i, count in enumerate(numerical_per_level):
-                if count > 0:
-                    print(f"Level {i} queries: {count}")
-
-            categorical_per_level = [0] * (self.ad_tree.num_dimensions + 1)
-            for region in cat_regions:
-                categorical_per_level[self.ad_tree.get_level(region)] += 1
-            for i, count in enumerate(categorical_per_level):
-                if count > 0:
-                    print(f"Level {i} queries: {count}")
-
-        estimate = 0
-        for region in query_regions:
-            cat_region = region[0]
-            num_region = region[1]
-            estimate += self.base_sketches[num_region.level][self.ad_tree.get_level(cat_region)].query(region)
-        
-        if detailed:
-            return estimate, {
-                "cat_regions": len(relevant_nodes),
-                "num_regions": len(num_regions),
-                "query_regions": len(query_regions),
-                "numerical_per_level": numerical_per_level,
-                "categorical_per_level": categorical_per_level
-            }
-        return estimate
-    
-    def merge(self, other: PachaSketch) -> PachaSketch:
-        if not isinstance(other, PachaSketch):
-            raise TypeError("Can only merge with another PachaSketch.")
-        if self.levels != other.levels or self.num_dimensions != other.num_dimensions:
-            raise ValueError("PachaSketches must have the same levels and number of dimensions to merge.")
-        if self.cat_col_map != other.cat_col_map or self.num_col_map != other.num_col_map:
-            raise ValueError("PachaSketches must have the same categorical and numerical column maps to merge.")
-        if self.bases != other.bases:
-            raise ValueError("PachaSketches must have the same bases to merge.")
-        if self.ad_tree != other.ad_tree:
-            raise ValueError("PachaSketches must have the same ADTree to merge.")
-        merged_sketch = copy.deepcopy(self)
-        merged_sketch.cat_index = self.cat_index.merge(other.cat_index)
-        merged_sketch.num_index = self.num_index.merge(other.num_index)
-        merged_sketch.max_values = [max(self.max_values[i], other.max_values[i]) for i in range(len(self.max_values))]
-        merged_sketch.min_values = [min(self.min_values[i], other.min_values[i]) for i in range(len(self.min_values))]
-        
-        for i in range(self.levels):
-            for j in range(len(self.cat_col_map) + 1):
-                merged_sketch.base_sketches[i][j] = self.base_sketches[i][j].merge(other.base_sketches[i][j])
-        
-        if merged_sketch.epsilon is not None and other.epsilon is not None:
-            merged_sketch.epsilon += other.epsilon
-        elif other.epsilon is not None:
-            merged_sketch.epsilon = other.epsilon
-        return merged_sketch
-    
-    def update_data_frame(self, df: pd.DataFrame, workers=8):
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = [
-                executor.submit(self.update, tuple(row))
-                for _, row in df.iterrows()
-            ]
-            for _ in tqdm(as_completed(futures), total=len(futures), desc="Updating"):
-                pass
-        return self
-    
-    def to_json(self) -> dict:   
-        base_sketches_json = []
-        for level_sketches in self.base_sketches:
-            level_sketches_json = []
-            for sketch in level_sketches:
-                level_sketches_json.append(sketch.to_json())
-            base_sketches_json.append(level_sketches_json)
-        return {
-            "levels": self.levels,
-            "num_dimensions": self.num_dimensions,
-            "cat_col_map": self.cat_col_map,
-            "num_col_map": self.num_col_map,
-            "bases": self.bases,
-            "ad_tree": self.ad_tree.to_json(),
-            "cat_index": self.cat_index.to_json(),
-            "num_index": self.num_index.to_json(),
-            "base_sketches": base_sketches_json,
-            "max_values": self.max_values,
-            "min_values": self.min_values,
-            "epsilon": self.epsilon
-        }
-    
-    def save_to_file(self, file_path: str):
-        if file_path.endswith('.gz'):
-            with gzip.open(file_path, "wb") as f:
-                f.write(orjson.dumps(self.to_json()))
-        else:
-            with open(file_path, 'wb') as f:
-                f.write(orjson.dumps(self.to_json()))
-
-    def get_size(self, unit: str = "MB") -> int:
-        n_bytes = asizeof.asizeof(self)
-        if unit == "MB":
-            return n_bytes / (1024 * 1024)
-        elif unit == "KB":
-            return n_bytes / 1024
-        elif unit == "B":
-            return n_bytes
-        else:            
-            raise ValueError("Unit must be 'MB', 'KB', or 'B'.")
-
-    
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, PachaSketch):
-            return False
-        return (
-            self.levels == other.levels and
-            self.num_dimensions == other.num_dimensions and
-            self.cat_col_map == other.cat_col_map and
-            self.num_col_map == other.num_col_map and
-            self.bases == other.bases and
-            self.ad_tree == other.ad_tree and
-            self.cat_index == other.cat_index and
-            self.num_index == other.num_index and
-            self.base_sketches == other.base_sketches and
-            self.max_values == other.max_values and
-            self.min_values == other.min_values
-        )
-    
-    def __getstate__(self):
-        state = self.__dict__.copy()
-        del state['cat_lock']
-        del state['num_lock']
-        del state['sketch_locks']
-        return state
-    
-    def __setstate__(self, state):
-        self.__dict__.update(state)
-        self.cat_lock = threading.Lock()
-        self.num_lock = threading.Lock()
-        self.sketch_locks = [threading.Lock() for _ in range(self.levels)]
-
-    @staticmethod
-    def build_with_uniform_size(
-        levels: int, num_dimensions: int, cat_col_map: List[int], num_col_map: List[int], 
-        bases: List[int], ad_tree: ADTree, cm_params: CMParameters, 
-        cat_index_parameters: BFParameters, num_index_parameters: BFParameters,
-        bf_params: BFParameters = None, n_sparse_levels: int = 0) -> PachaSketch:
-        """
-        Build a PachaSketch with uniform size for base sketches.
-        """
-
-        if n_sparse_levels > levels:
-            raise ValueError("Number of sparse levels cannot exceed total levels.")
-        if n_sparse_levels > 0 and bf_params is None:
-            raise ValueError("Bloom Filter parameters must be provided for sparse levels.")
-        
-        base_sketch_parameters = [bf_params] * n_sparse_levels + [cm_params] * (levels-n_sparse_levels) 
-            
-        return PachaSketch(
-            levels=levels,
-            num_dimensions=num_dimensions,
-            cat_col_map=cat_col_map,
-            num_col_map=num_col_map,
-            bases=bases,
-            base_sketch_parameters=base_sketch_parameters,
-            ad_tree=ad_tree,
-            cat_index_parameters=cat_index_parameters,
-            num_index_parameters=num_index_parameters
-        )
-    
-    @staticmethod
-    def from_json(file_path: str) -> PachaSketch:
-        """
-        Build a PachaSketch from a JSON file.
-        """
-        if file_path.endswith('.gz'):
-            with gzip.open(file_path, "rb") as f:
-                data_bytes = f.read()
-                json_dict = orjson.loads(data_bytes)
-        else:
-            with open(file_path, 'rb') as f:
-                json_dict = orjson.loads(f.read())
-
-        return PachaSketch(json_dict=json_dict)
-
-
 
 
