@@ -149,6 +149,17 @@ class H3HashFunctions:
     def to_string(self):
         print("H3HashFunctions\nn_functions = "+str(self.n_functions)+"\nq_matrices = "+str(self.q_matrices))
 
+def hash_blake2b(value: np.ndarray, seed=7, digest_bits=64):
+    """Hashes a 1D array (single element) using blake2b."""
+    digest_bytes = digest_bits // 8
+    h = hashlib.blake2b(digest_size=digest_bytes,
+                        key=seed.to_bytes(4, 'little'))
+    h.update(value.tobytes())  # deterministic and efficient
+    return int.from_bytes(h.digest(), 'big')
+
+def fast_hash_xx(row: np.ndarray, seed=7):
+    return xxhash.xxh3_64(row.tobytes(), seed=seed).intdigest()
+
 class HashFunctionFamily:
     num_hashes: int
     max_range: int
@@ -165,12 +176,14 @@ class HashFunctionFamily:
         """
         np.random.seed(seed)
         if json_dict is None:
+            self.seed = seed
             self.num_hashes = num_hashes
             self.max_range = max_range
             self.a_coefficients = np.random.randint(1, max_range, size=num_hashes)
             self.b_coefficients = np.random.randint(0, max_range, size=num_hashes)
             self.prime = self._next_prime(max_range)
         else:
+            self.seed = json_dict["seed"]
             self.num_hashes = json_dict["num_hashes"]
             self.max_range = json_dict["max_range"]
             self.a_coefficients = np.asarray(json_dict["a_coefficients"])
@@ -220,10 +233,12 @@ class HashFunctionFamily:
         :return: 2D NumPy array of shape (len(elements), num_hashes), each row contains hash indices for one element.
         """
         # Step 1: Compute base hashes for all elements
-        if isinstance(elements, np.ndarray):
-            base_hashes = np.array([hash(tuple(x)) for x in elements])  
-        else:
-            base_hashes = np.array([hash(x) for x in elements])  # shape: (n_elements,)
+        # if isinstance(elements, np.ndarray):
+        #     base_hashes = np.array([hash(tuple(x)) for x in elements])  
+        # else:
+        #     base_hashes = np.array([hash(x) for x in elements])  # shape: (n_elements,)
+        base_hashes = np.array([hash(tuple(x)) for x in elements]) 
+        # base_hashes = np.array([fast_hash_xx(x, seed=self.seed) for x in elements]) 
 
         # Step 2: Compute all hash values using broadcasting
         # Shapes:
@@ -241,6 +256,7 @@ class HashFunctionFamily:
         :return: Dictionary representation of the hash function family.
         """
         return {
+            "seed": self.seed,
             "num_hashes": self.num_hashes,
             "max_range": self.max_range,
             "a_coefficients": self.a_coefficients.tolist(),

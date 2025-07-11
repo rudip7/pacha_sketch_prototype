@@ -36,37 +36,12 @@ from ctypes import c_int32
 from itertools import product
 from .sketches import BaseSketch, CountMinSketch, BloomFilter
 from .encoders import BAdicRange, BAdicCube, NumericRange, minimal_b_adic_cover, sort_b_adic_ranges,\
-      minimal_spatial_b_adic_cover, get_hilbert_ranges, minimal_b_adic_cover_array, downgrade_b_adic_range_indices
+     get_hilbert_ranges, minimal_b_adic_cover_array, downgrade_b_adic_range_indices
 
 from typing import List, Tuple, Dict, Any, Set
 
 
 __all__ = ["PachaSketch", "ADTree", "NumericalBitmap", "CMParameters", "BFParameters"]
-
-
-def cartesian_product(arrays):
-    """
-    Compute the Cartesian product of input 1D arrays.
-    Returns an array of shape (len(arrays[0]) * ... * len(arrays[-1]), len(arrays)).
-    """
-    # arrays = [np.asarray(a) for a in arrays]
-    mesh = np.meshgrid(*arrays, indexing='ij')
-    return np.stack(mesh, axis=-1).reshape(-1, len(arrays))
-
-def region_cross_product(cat_regions: np.ndarray, num_regions: np.ndarray) -> np.ndarray:
-    n = cat_regions.shape[0]
-    m = num_regions.shape[0]
-
-    # Repeat cat_mappings for each num_mappings row
-    cat_repeated = np.repeat(cat_regions, m, axis=0)  # shape (n*m, n_cat)
-    # Tile num_mappings for each cat_mappings row
-    num_tiled = np.tile(num_regions, (n, 1))          # shape (n*m, n_num + 1)
-
-    # Concatenate along columns
-    return np.concatenate([cat_repeated, num_tiled], axis=1)
-
-def make_cube(combination):
-    return BAdicCube(combination)
 
 class ADTree:
     def __init__(self, json_dict: dict = None):
@@ -491,6 +466,95 @@ class BFParameters(BaseSketchParameters):
     def build_sketch(self):
         return BloomFilter(size=self.size, hash_count=self.hash_count, n_values=self.n_values, p=self.p, seed=self.seed, epsilon=self.epsilon)
 
+# Helper functions for Pacha Sketch
+def cartesian_product(arrays):
+    """
+    Compute the Cartesian product of input 1D arrays.
+    Returns an array of shape (len(arrays[0]) * ... * len(arrays[-1]), len(arrays)).
+    """
+    # arrays = [np.asarray(a) for a in arrays]
+    mesh = np.meshgrid(*arrays, indexing='ij')
+    return np.stack(mesh, axis=-1).reshape(-1, len(arrays))
+
+def region_cross_product(cat_regions: np.ndarray, num_regions: np.ndarray) -> np.ndarray:
+    n = cat_regions.shape[0]
+    m = num_regions.shape[0]
+
+    # Repeat cat_mappings for each num_mappings row
+    cat_repeated = np.repeat(cat_regions, m, axis=0)  # shape (n*m, n_cat)
+    # Tile num_mappings for each cat_mappings row
+    num_tiled = np.tile(num_regions, (n, 1))          # shape (n*m, n_num + 1)
+
+    # Concatenate along columns
+    return np.concatenate([cat_repeated, num_tiled], axis=1)
+
+def make_cube(combination):
+    return BAdicCube(combination)
+
+def lattice_expand(cubes: np.ndarray, fill='*') -> np.ndarray:
+    """
+    For an (n,d) integer array `cubes` return an
+    (n*2**d , d) object array where for every row every
+    subset of coordinates is replaced by `fill`.
+    """
+    n, d = cubes.shape
+    # --- bit‑mask for all 2^d combinations ----------------------------
+    combos = np.arange(2**d, dtype=np.uint32)[:, None]         # (2^d,1)
+    bits   = (combos >> np.arange(d)) & 1                      # (2^d,d), 0 or 1
+
+    # remove all-wildcard mask (where all bits are 1)
+    keep = bits.sum(axis=1) < d
+    bits = bits[keep]                                         # (2^d - 1, d)
+
+    # --- broadcast over n rows ---------------------------------------
+    # repeat masks n times (n,2^d,d) → reshape to (n*2^d,d)
+    masks  = np.repeat(bits[None, ...], n, axis=0).reshape(-1, d)
+
+    # repeat data to same shape and copy into object dtype
+    data   = np.repeat(cubes, 2**d-1, axis=0).astype(object)
+
+    # where mask==0 keep value, where mask==1 place fill sentinel
+    data[masks.astype(bool)] = fill
+    return data
+
+def lattice_expand_k012(cubes: np.ndarray, fill='*') -> np.ndarray:
+    """
+    Like lattice_expand, but only keep masks with
+    k ∈ {0,1,2,d} wildcards.
+    
+    Parameters
+    ----------
+    cubes : (n, d) array_like
+        The data points.
+    fill  : scalar
+        Sentinel to insert at masked positions.
+
+    Returns
+    -------
+    out : ( n·(1 + d + C(d,2)) , d ) object array
+            = ( n·[1 + d + d(d−1)/2] , d )
+    """
+    n, d = cubes.shape
+    two_pow_d = 1 << d                      # 2**d
+
+    # ----- build all 2^d bit masks ------------------------------------------------
+    combos = np.arange(two_pow_d, dtype=np.uint32)[:, None]   # (2^d,1)
+    bits   = (combos >> np.arange(d)) & 1                     # (2^d,d), 0/1
+
+    # ----- popcount (how many 1‑bits in each mask) --------------------------------
+    k = bits.sum(axis=1)                                      # (2^d,)
+
+    # ----- keep only k ∈ {0,1,2} ------------------------------------------------
+    keep = (k == 0) | (k == 1) | (k == 2)
+    bits  = bits[keep]                                        # (m, d); m = 1 + d + C(d,2)
+
+    # ----- broadcast over the n rows ------------------------------------------------
+    masks = np.repeat(bits[None, ...], n, axis=0).reshape(-1, d)  # (n·m, d)
+
+    # ----- build result -------------------------------------------------------------
+    data  = np.repeat(cubes, masks.shape[0] // n, axis=0).astype(object)
+    data[masks.astype(bool)] = fill
+    return data
 
 class PachaSketch:
     """
@@ -605,25 +669,27 @@ class PachaSketch:
             self.min_values = np.asarray(self.min_values, dtype=int)
             self.epsilon = json_dict["epsilon"] 
 
-        # self.bitmap_lock = [threading.Lock() for _ in range(len(self.numerical_bitmaps))]
-        # self.cat_lock = threading.Lock()
-        # self.num_lock = threading.Lock()
-        # self.region_lock = threading.Lock()
-        # self.sketch_locks = [threading.Lock() for _ in range(self.levels)]
-
     def get_numerical_mappings(self, element: np.ndarray) -> np.ndarray:
-        # element = np.asarray(element)
         all_levels = np.arange(self.levels)
         matrix = self.bases[:, None] ** all_levels[None, :]
-        cubes = np.floor(element[:, None] / matrix[0, :]).astype(int)
-        return np.column_stack([all_levels, cubes.T])            
+        cubes = np.floor(element[:, None] / matrix[0, :]).astype(int).T
+        if len(self.bases) <= 3:
+            expanded_cubes = lattice_expand(cubes)
+        else:
+            expanded_cubes = lattice_expand_k012(cubes)
+        all_levels = np.repeat(all_levels, expanded_cubes.shape[0] // all_levels.shape[0])
+        mappings = np.column_stack([all_levels, expanded_cubes])
+        # Add all wildcards option
+        mappings = np.append(mappings, [[self.levels-1] + ['*']*cubes.shape[1]], axis=0)
+        return mappings       
             
 
     def update(self, element: tuple):
         # assert len(element) == self.num_dimensions, \
         #     "Element must have the same number of dimensions as the sketch."
+        element = np.asarray(element)
         cat_values = tuple(element[i] for i in self.cat_col_map)
-        num_values = np.asarray([element[i] for i in self.num_col_map], dtype=int)
+        num_values = element[self.num_col_map].astype(int)
         cat_mappings = self.ad_tree.get_mapping(cat_values)
 
         max_level_idx = np.floor(num_values / self.bases ** self.levels).astype(int)
@@ -639,20 +705,16 @@ class PachaSketch:
         
         for i, val in enumerate(num_values):
             if not self.numerical_bitmaps[i].query(val):
-            # with self.bitmap_lock[i]:
                 self.numerical_bitmaps[i].update(val)
 
         num_mappings = self.get_numerical_mappings(num_values)
         mapped_regions = region_cross_product(cat_mappings, num_mappings)
 
-    # with self.cat_lock:
         self.cat_index.update_batch(cat_mappings)
-    # with self.num_lock:
         self.num_index.update_batch(num_mappings)
-    # with self.region_lock:
         self.region_index.update_batch(mapped_regions)
 
-        level_col = mapped_regions[:, len(self.cat_col_map)]
+        level_col = mapped_regions[:, len(self.cat_col_map)].astype(int)
 
         # Sort by level
         sorted_idx = np.argsort(level_col)
@@ -668,16 +730,16 @@ class PachaSketch:
         unique_levels = sorted_levels[group_boundaries].astype(int)
 
         for level, regions in zip(unique_levels, groups):
-        # with self.sketch_locks[level]:
             self.base_sketches[level].update_batch(regions)
 
         return self
     
-    def minimal_spatial_b_adic_cover(self, num_predicates: List[Tuple[int, int]]) -> np.ndarray:
+    def minimal_spatial_b_adic_cover(self, num_dimensions, num_predicates: List[Tuple[int, int]]) -> np.ndarray:
+        cover_bases = self.bases[num_dimensions]
         minimal_b_adic_covers = []
         for i in range(len(num_predicates)):
-            cover_ranges = minimal_b_adic_cover_array(self.bases[i], num_predicates[i][0], num_predicates[i][1])
-            unpruned_ranges = self.numerical_bitmaps[i].prune_b_adic_array(cover_ranges)
+            cover_ranges = minimal_b_adic_cover_array(cover_bases[i], num_predicates[i][0], num_predicates[i][1])
+            unpruned_ranges = self.numerical_bitmaps[num_dimensions[i]].prune_b_adic_array(cover_ranges)
             minimal_b_adic_covers.append(unpruned_ranges)
         
         if any(len(covers) == 0 for covers in minimal_b_adic_covers):
@@ -694,8 +756,8 @@ class PachaSketch:
                 if key in cached_pruned_ranges:
                     downgraded.append(cached_pruned_ranges[key])
                     continue
-                b_adic_indices = downgrade_b_adic_range_indices(base=self.bases[i], level=level, idx=idx, new_level=min_level)
-                unpruned_indices = self.numerical_bitmaps[i].prune_b_adic_indices(min_level, b_adic_indices)
+                b_adic_indices = downgrade_b_adic_range_indices(base=cover_bases[i], level=level, idx=idx, new_level=min_level)
+                unpruned_indices = self.numerical_bitmaps[num_dimensions[i]].prune_b_adic_indices(min_level, b_adic_indices)
                 cached_pruned_ranges[key] = unpruned_indices                
                 if len(unpruned_indices) >= 1:
                     downgraded.append(unpruned_indices)
@@ -736,13 +798,14 @@ class PachaSketch:
                 idx = query.index(query_d)
                 raise TypeError(f"Query predicate at index {idx} expected to be a set or '*'.")
         
+        num_dimensions = []
         for i, query_d in enumerate(num_predicates):
             if (isinstance(query_d, tuple) or isinstance(query_d, list)) and len(query_d) == 2:
                 if not isinstance(query_d[0], int) or not isinstance(query_d[1], int):
                     raise TypeError("Bounds must be integers.")
                 if query_d[0] > query_d[1]:
                     raise ValueError("Lower bound cannot be greater than upper bound.")
-                continue
+                num_dimensions.append(i)
             elif isinstance(query_d, str) and query_d == "*":
                 num_predicates[i] = (self.min_values[i], self.max_values[i])
             else:
@@ -750,8 +813,37 @@ class PachaSketch:
                 raise TypeError(f"Query predicate at index {idx} expected to be a tuple of (lower_bound, upper_bound) or '*'.")
   
         relevant_nodes = self.ad_tree.get_relevant_nodes(cat_predicates, for_query=True)
-        b_adic_cubes = self.minimal_spatial_b_adic_cover(num_predicates)
+        
+        if len(num_dimensions) == 0:
+            b_adic_cubes = np.asarray([[self.levels-1] + ['*']*len(num_predicates)])
+        elif len(num_dimensions) <= 2:
+            n_num = len(self.bases)
+            num_predicates = [num_predicates[i] for i in num_dimensions]
+            b_adic_cubes = self.minimal_spatial_b_adic_cover(num_dimensions, num_predicates).astype(object)
+            if b_adic_cubes.shape[0] > 0:
+                empty_dim = np.full((b_adic_cubes.shape[0], n_num-len(num_dimensions)), '*', dtype=object)
+                dims_to_add = np.setdiff1d(np.arange(n_num), num_dimensions)
+                b_adic_cubes = np.insert(b_adic_cubes, dims_to_add+1-np.arange(len(dims_to_add)), empty_dim, axis=1)
+        else:
+            # If there are more than 2 numerical dimensions, we need to use the full cover
+            # This is a more expensive operation, so we only do it if necessary   
+            b_adic_cubes = self.minimal_spatial_b_adic_cover(self.bases, num_predicates).astype(object)
 
+        if b_adic_cubes.shape[0] == 0:
+            if debug:
+                print("All B-adic cubes are empty")
+            if detailed:
+                return np.asarray([]), {
+                    "relevant_nodes": 0,
+                    "cat_regions": 0,
+                    "b_adic_cubes": 0,
+                    "num_regions": 0,
+                    "candidate_regions": 0,
+                    "query_regions": 0,
+                    "queries_per_level": [0] * self.levels
+                }
+            else:
+                return np.asarray([]), None
         cat_regions = relevant_nodes[self.cat_index.query_batch(relevant_nodes)]
         num_regions = b_adic_cubes[self.num_index.query_batch(b_adic_cubes)]
 
@@ -791,6 +883,11 @@ class PachaSketch:
 
     def query(self, query: List[Any], detailed = False, debug=False) -> int:
         query_regions, details = self.get_subqueries(query, detailed=detailed, debug=debug)
+
+        if query_regions.size == 0:
+            if detailed:
+                return 0, details
+            return 0
 
         level_col = query_regions[:, len(self.cat_col_map)]
 
@@ -848,15 +945,7 @@ class PachaSketch:
             merged_sketch.epsilon = other.epsilon
         return merged_sketch
     
-    def update_data_frame(self, df: pd.DataFrame, workers=8):
-        # with ThreadPoolExecutor(max_workers=workers) as executor:
-        #     futures = [
-        #         executor.submit(self.update, tuple(row))
-        #         for _, row in df.iterrows()
-        #     ]
-        #     for _ in tqdm(as_completed(futures), total=len(futures), desc="Updating"):
-        #         pass
-
+    def update_data_frame(self, df: pd.DataFrame) -> PachaSketch:
         for _, row in tqdm(df.iterrows(), total=len(df), desc="Updating"):
             self.update(row)
         return self
@@ -874,8 +963,8 @@ class PachaSketch:
             "num_index": self.num_index.to_json(),
             "region_index": self.region_index.to_json(),
             "base_sketches": [sketch.to_json() for sketch in self.base_sketches],
-            "max_values": self.max_values,
-            "min_values": self.min_values,
+            "max_values": self.max_values.tolist(),
+            "min_values": self.min_values.tolist(),
             "epsilon": self.epsilon
         }
     
@@ -909,15 +998,15 @@ class PachaSketch:
             self.num_dimensions == other.num_dimensions and
             self.cat_col_map == other.cat_col_map and
             self.num_col_map == other.num_col_map and
-            self.bases == other.bases and
+            np.array_equal(self.bases, other.bases) and
             self.ad_tree == other.ad_tree and
             self.cat_index == other.cat_index and
             self.num_index == other.num_index and
             self.region_index == other.region_index and
             self.base_sketches == other.base_sketches and
             self.numerical_bitmaps == other.numerical_bitmaps and
-            self.max_values == other.max_values and
-            self.min_values == other.min_values
+            np.array_equal(self.max_values, other.max_values) and
+            np.array_equal(self.min_values, other.min_values)
         )
     
     def __getstate__(self):
