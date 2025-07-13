@@ -23,6 +23,13 @@ from hilbert import encode
 import orjson
 import gzip
 
+import multiprocessing as mp
+import threading
+from functools import partial
+from functools       import reduce
+
+
+
 from itertools import islice
 from collections import defaultdict
 from multiprocessing import Pool, cpu_count
@@ -336,17 +343,18 @@ class NumericalBitmap:
     def merge(self, other: NumericalBitmap) -> NumericalBitmap:
         assert self.base == other.base, "Base of the bitmaps must match."
         assert self.size_per_side == other.size_per_side, "Size of the bitmaps must match."
-        other_copy = copy.deepcopy(other)
-        self_copy = copy.deepcopy(self)
-        while self_copy.exponent < other_copy.exponent:
-            self_copy._increase_exponent()
-        while other_copy.exponent < self_copy.exponent:
-            other_copy._increase_exponent()
-        assert self_copy.exponent == other_copy.exponent, "Exponents of the bitmaps must match after increasing."
-        self_copy.positive_bitmap = np.logical_or(self_copy.positive_bitmap, other_copy.positive_bitmap)
-        self_copy.negative_bitmap = np.logical_or(self_copy.negative_bitmap, other_copy.negative_bitmap)
+        
+        # self_copy = copy.deepcopy(self)
+        while self.exponent < other.exponent:
+            self._increase_exponent()
+        while other.exponent < self.exponent:
+            other = copy.deepcopy(other)
+            other._increase_exponent()
+        assert self.exponent == other.exponent, "Exponents of the bitmaps must match after increasing."
+        self.positive_bitmap = np.logical_or(self.positive_bitmap, other.positive_bitmap)
+        self.negative_bitmap = np.logical_or(self.negative_bitmap, other.negative_bitmap)
 
-        return self_copy
+        return self
     
     def get_size(self, unit: str = "MB") -> int:
         n_bytes = np.ceil(self.size_per_side*2 / 8.0)
@@ -467,6 +475,22 @@ class BFParameters(BaseSketchParameters):
         return BloomFilter(size=self.size, hash_count=self.hash_count, n_values=self.n_values, p=self.p, seed=self.seed, epsilon=self.epsilon)
 
 # Helper functions for Pacha Sketch
+def get_n_updates(n_cat, n_num, levels, debug=False):
+    cat_index = n_cat + 1
+    num_index = (1+n_num+(n_num*(n_num-1)/2)) * levels + 1
+    region_index = cat_index * num_index 
+    base_sketches = region_index
+    total = cat_index + num_index + region_index + base_sketches
+    if debug:
+        print("Nr. of updates in Pacha Sketch:")
+        print(f"cat_index: {cat_index}")
+        print(f"num_index: {num_index}")   
+        print(f"region_index: {region_index}")
+        print(f"base_sketches: {base_sketches}")
+        print(f"Total: {total}")
+
+    return cat_index, num_index, region_index
+
 def cartesian_product(arrays):
     """
     Compute the Cartesian product of input 1D arrays.
@@ -556,6 +580,12 @@ def lattice_expand_k012(cubes: np.ndarray, fill='*') -> np.ndarray:
     data[masks.astype(bool)] = fill
     return data
 
+def _build_sketch_chunk(df_chunk: pd.DataFrame, sketch_proto: PachaSketch) -> PachaSketch:
+    # Deep‑copy the prototype so each worker gets its own fresh sketch
+    local_sketch = copy.deepcopy(sketch_proto)
+    local_sketch.update_data_frame(df_chunk)
+    return local_sketch
+
 class PachaSketch:
     """
     A PachaSketch is a multi-dimensional sketch that efficiently answers multidimensional count queries.
@@ -574,12 +604,7 @@ class PachaSketch:
     max_values: np.ndarray
     min_values: np.ndarray
     epsilon: float
-    bitmap_lock: List[threading.Lock]
-    cat_lock: threading.Lock
-    num_lock: threading.Lock
-    region_lock: threading.Lock
-    sketch_locks: List[threading.Lock]
-
+    processed_elements: int
 
     def __init__(self, levels: int = None, num_dimensions: int= None, cat_col_map: List[int]= None, num_col_map: List[int]= None, 
                  bases: List[int]= None, base_sketch_parameters: List[BaseSketchParameters]= None,
@@ -634,6 +659,8 @@ class PachaSketch:
 
             self.max_values = np.full(len(num_col_map), -np.inf)
             self.min_values = np.full(len(num_col_map), np.inf)
+            self.processed_elements = 0
+            
         else:
             self.levels = json_dict["levels"]
             self.num_dimensions = json_dict["num_dimensions"]
@@ -668,6 +695,10 @@ class PachaSketch:
                     self.min_values[i] = math.inf
             self.min_values = np.asarray(self.min_values, dtype=int)
             self.epsilon = json_dict["epsilon"] 
+            if "processed_elements" in json_dict:
+                self.processed_elements = json_dict["processed_elements"]
+            else:
+                self.processed_elements = 0        
 
     def get_numerical_mappings(self, element: np.ndarray) -> np.ndarray:
         all_levels = np.arange(self.levels)
@@ -691,6 +722,7 @@ class PachaSketch:
         cat_values = tuple(element[i] for i in self.cat_col_map)
         num_values = element[self.num_col_map].astype(int)
         cat_mappings = self.ad_tree.get_mapping(cat_values)
+        # cat_mappings = np.asarray(cat_mappings, dtype='U32')
 
         max_level_idx = np.floor(num_values / self.bases ** self.levels).astype(int)
         max_level_min = max_level_idx * self.bases ** self.levels
@@ -709,6 +741,9 @@ class PachaSketch:
 
         num_mappings = self.get_numerical_mappings(num_values)
         mapped_regions = region_cross_product(cat_mappings, num_mappings)
+
+        # num_mappings = np.asarray(num_mappings, dtype='U32')
+        # mapped_regions = np.asarray(mapped_regions, dtype='U32')
 
         self.cat_index.update_batch(cat_mappings)
         self.num_index.update_batch(num_mappings)
@@ -732,6 +767,7 @@ class PachaSketch:
         for level, regions in zip(unique_levels, groups):
             self.base_sketches[level].update_batch(regions)
 
+        self.processed_elements += 1
         return self
     
     def minimal_spatial_b_adic_cover(self, num_dimensions, num_predicates: List[Tuple[int, int]]) -> np.ndarray:
@@ -844,11 +880,15 @@ class PachaSketch:
                 }
             else:
                 return np.asarray([]), None
+            
+        # relevant_nodes = np.asarray(relevant_nodes, dtype='U32')
+        # b_adic_cubes = np.asarray(b_adic_cubes, dtype='U32')
         cat_regions = relevant_nodes[self.cat_index.query_batch(relevant_nodes)]
         num_regions = b_adic_cubes[self.num_index.query_batch(b_adic_cubes)]
 
         candidate_regions = region_cross_product(cat_regions, num_regions)
 
+        # candidate_regions = np.asarray(candidate_regions, dtype='U32')
         query_regions = candidate_regions[self.region_index.query_batch(candidate_regions)]
 
         if debug or detailed:
@@ -922,32 +962,58 @@ class PachaSketch:
             raise ValueError("PachaSketches must have the same levels and number of dimensions to merge.")
         if self.cat_col_map != other.cat_col_map or self.num_col_map != other.num_col_map:
             raise ValueError("PachaSketches must have the same categorical and numerical column maps to merge.")
-        if self.bases != other.bases:
+        if np.array_equal(self.bases, other.bases) is False:
             raise ValueError("PachaSketches must have the same bases to merge.")
         if self.ad_tree != other.ad_tree:
             raise ValueError("PachaSketches must have the same ADTree to merge.")
-        merged_sketch = copy.deepcopy(self)
-        merged_sketch.cat_index = self.cat_index.merge(other.cat_index)
-        merged_sketch.num_index = self.num_index.merge(other.num_index)
-        merged_sketch.region_index = self.region_index.merge(other.region_index)
-        merged_sketch.max_values = [max(self.max_values[i], other.max_values[i]) for i in range(len(self.max_values))]
-        merged_sketch.min_values = [min(self.min_values[i], other.min_values[i]) for i in range(len(self.min_values))]
+        # merged_sketch = copy.deepcopy(self)
+        self.cat_index = self.cat_index.merge(other.cat_index)
+        self.num_index = self.num_index.merge(other.num_index)
+        self.region_index = self.region_index.merge(other.region_index)
+        self.max_values = np.max([self.max_values, other.max_values], axis=0)
+        self.min_values = np.min([self.min_values, other.min_values], axis=0) 
         
         for i in range(len(self.numerical_bitmaps)):
-            merged_sketch.numerical_bitmaps[i] = self.numerical_bitmaps[i].merge(other.numerical_bitmaps[i])
+            self.numerical_bitmaps[i] = self.numerical_bitmaps[i].merge(other.numerical_bitmaps[i])
 
         for i in range(self.levels):
-            merged_sketch.base_sketches[i] = self.base_sketches[i].merge(other.base_sketches[i])
+            self.base_sketches[i] = self.base_sketches[i].merge(other.base_sketches[i])
         
-        if merged_sketch.epsilon is not None and other.epsilon is not None:
-            merged_sketch.epsilon += other.epsilon
+        if self.epsilon is not None and other.epsilon is not None:
+            self.epsilon += other.epsilon
         elif other.epsilon is not None:
-            merged_sketch.epsilon = other.epsilon
-        return merged_sketch
+            self.epsilon = other.epsilon
+
+        self.processed_elements += other.processed_elements
+        return self
     
     def update_data_frame(self, df: pd.DataFrame) -> PachaSketch:
         for _, row in tqdm(df.iterrows(), total=len(df), desc="Updating"):
             self.update(row)
+        return self
+    
+    def update_data_frame_multiprocessing(self, df: pd.DataFrame, workers=None):
+        if workers is None:
+            workers = max(1, cpu_count() - 1)
+
+        # 1. Split the dataframe into roughly equal pieces
+        chunks = np.array_split(df, workers)
+
+        tasks = [(chunk, self) for chunk in chunks]
+
+        with Pool(processes=workers, maxtasksperchild=2) as pool:
+            for partial_sketch in tqdm(
+                    pool.starmap(_build_sketch_chunk, tasks, chunksize=1),
+                    total=len(chunks),
+                    desc="Building-and-merging"):
+
+                self.merge(partial_sketch)
+                del partial_sketch
+                
+        # print("Partial sketches built, merging...")
+        # # 2. Reduce (merge) all partial sketches into *this* instance
+        # final = reduce(lambda a, b: a.merge(b), partials, self)
+
         return self
     
     def to_json(self) -> dict:   
@@ -976,16 +1042,36 @@ class PachaSketch:
             with open(file_path, 'wb') as f:
                 f.write(orjson.dumps(self.to_json()))
 
-    def get_size(self, unit: str = "MB", consider_ad_tree: bool = False) -> int:
-        size = self.cat_index.get_size(unit) + self.num_index.get_size(unit) + self.region_index.get_size(unit)
+    def get_size(self, unit: str = "MB", consider_ad_tree: bool = False, debug: bool = False) -> int:
+        cat_index_size = self.cat_index.get_size(unit)
+        num_index_size = self.num_index.get_size(unit)
+        region_index_size = self.region_index.get_size(unit)
+        size = cat_index_size + num_index_size + region_index_size
+       
+        base_sketches_size = 0       
         for sketch in self.base_sketches:
-            size += sketch.get_size(unit)
+            base_sketches_size += sketch.get_size(unit)
+        size += base_sketches_size
 
+        bitmaps_size = 0
         for bitmap in self.numerical_bitmaps:
-            size += bitmap.get_size(unit)
+            bitmaps_size += bitmap.get_size(unit)
+        size += bitmaps_size
 
         if consider_ad_tree:
-            size += self.ad_tree.get_size(unit)
+            ad_tree_size = self.ad_tree.get_size(unit)
+            size += ad_tree_size
+
+        if debug:
+            print(f"Categorical Index Size: {cat_index_size} {unit}")
+            print(f"Numerical Index Size: {num_index_size} {unit}")
+            print(f"Region Index Size: {region_index_size} {unit}")
+            print(f"Base Sketches Size: {base_sketches_size} {unit}")
+            print(f"Numerical Bitmaps Size: {bitmaps_size} {unit}")
+            if consider_ad_tree:
+                print(f"ADTree Size: {ad_tree_size} {unit}")
+            print("--------------------------------------")
+            print(f"Total Size: {size} {unit}")
         
         return size
 
@@ -1126,13 +1212,9 @@ class PachaSketch:
         """
         Build a PachaSketch from a JSON file.
         """
-        if file_path.endswith('.gz'):
-            with gzip.open(file_path, "rb") as f:
-                data_bytes = f.read()
-                json_dict = orjson.loads(data_bytes)
-        else:
-            with open(file_path, 'rb') as f:
-                json_dict = orjson.loads(f.read())
+        open_fn = gzip.open if file_path.endswith('.gz') else open
+        with open_fn(file_path, "rt", encoding="utf-8") as f:
+            json_dict = json.load(f)  # streaming parser
 
         return PachaSketch(json_dict=json_dict)
 

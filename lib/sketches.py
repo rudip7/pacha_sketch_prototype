@@ -158,7 +158,14 @@ def hash_blake2b(value: np.ndarray, seed=7, digest_bits=64):
     return int.from_bytes(h.digest(), 'big')
 
 def fast_hash_xx(row: np.ndarray, seed=7):
-    return xxhash.xxh3_64(row.tobytes(), seed=seed).intdigest()
+    # row_fixed = np.asarray(row, dtype='U32')
+    return xxhash.xxh3_64(str(tuple(row)).encode("utf-8"), seed=seed).intdigest()
+
+def simple_hash(row: np.ndarray, seed=7):
+    # deterministic byte representation
+    key = b"\x1f".join(str(x).encode("utf‑8") for x in row)
+    # fast 64‑bit hash of those bytes
+    return xxhash.xxh3_64(key, seed=seed).intdigest()
 
 class HashFunctionFamily:
     num_hashes: int
@@ -237,8 +244,13 @@ class HashFunctionFamily:
         #     base_hashes = np.array([hash(tuple(x)) for x in elements])  
         # else:
         #     base_hashes = np.array([hash(x) for x in elements])  # shape: (n_elements,)
-        base_hashes = np.array([hash(tuple(x)) for x in elements]) 
+        # base_hashes = np.array([hash(tuple(x)) for x in elements]) 
         # base_hashes = np.array([fast_hash_xx(x, seed=self.seed) for x in elements]) 
+        base_hashes = np.fromiter(
+                            (simple_hash(x, seed=self.seed) for x in elements),
+                            dtype=np.uint64,
+                            count=len(elements)
+                        )
 
         # Step 2: Compute all hash values using broadcasting
         # Shapes:
@@ -679,15 +691,15 @@ class CountMinSketch(BaseSketch):
         if self.hash_functions != other.hash_functions:
             raise ValueError("Cannot merge CountMinSketches with different hash functions.")
         
-        merged_sketch = copy.deepcopy(self)
+        # merged_sketch = copy.deepcopy(self)
 
-        merged_sketch.counters += other.counters
-        merged_sketch.processed_elements += other.processed_elements
-        if merged_sketch.epsilon is not None and other.epsilon is not None:
-            merged_sketch.epsilon += other.epsilon
+        self.counters += other.counters
+        self.processed_elements += other.processed_elements
+        if self.epsilon is not None and other.epsilon is not None:
+            self.epsilon += other.epsilon
         elif other.epsilon is not None:
-            merged_sketch.epsilon = other.epsilon
-        return merged_sketch
+            self.epsilon = other.epsilon
+        return self
     
     def add_privacy_noise(self, epsilon: float):
         """
@@ -908,15 +920,15 @@ class BloomFilter(BaseSketch):
         if self.hash_functions != other.hash_functions:
             raise ValueError("Cannot merge BloomFilters with different hash functions.")
         
-        merged_sketch = copy.deepcopy(self)
+        # merged_sketch = copy.deepcopy(self)
 
-        merged_sketch.bit_array = np.logical_or(merged_sketch.bit_array, other.bit_array)
-        merged_sketch.processed_elements += other.processed_elements
-        if merged_sketch.epsilon is not None and other.epsilon is not None:
-            merged_sketch.epsilon += other.epsilon
+        self.bit_array = np.logical_or(self.bit_array, other.bit_array)
+        self.processed_elements += other.processed_elements
+        if self.epsilon is not None and other.epsilon is not None:
+            self.epsilon += other.epsilon
         elif other.epsilon is not None:
-            merged_sketch.epsilon = other.epsilon
-        return merged_sketch
+            self.epsilon = other.epsilon
+        return self
     
     def add_privacy_noise(self, epsilon: float):
         """
