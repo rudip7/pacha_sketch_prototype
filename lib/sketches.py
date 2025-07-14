@@ -247,10 +247,15 @@ class HashFunctionFamily:
         # base_hashes = np.array([hash(tuple(x)) for x in elements]) 
         # base_hashes = np.array([fast_hash_xx(x, seed=self.seed) for x in elements]) 
         base_hashes = np.fromiter(
-                            (simple_hash(x, seed=self.seed) for x in elements),
-                            dtype=np.uint64,
+                            (hash(tuple(x)) for x in elements),
+                            dtype=np.int64,
                             count=len(elements)
                         )
+        # base_hashes = np.fromiter(
+        #                     (simple_hash(x, seed=self.seed) for x in elements),
+        #                     dtype=np.uint64,
+        #                     count=len(elements)
+        #                 )
 
         # Step 2: Compute all hash values using broadcasting
         # Shapes:

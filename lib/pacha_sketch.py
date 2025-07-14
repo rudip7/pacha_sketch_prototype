@@ -56,12 +56,17 @@ class ADTree:
             self.num_dimensions = 0
             self.possible_values = []
             self.names = []
+            self.collapsed = False
         else:
             self.num_dimensions = json_dict["num_dimensions"]
             self.possible_values = []
             for value_sets in json_dict["possible_values"]:
                 self.possible_values.append(set(value_sets))
             self.names = json_dict["names"]
+            if "collapsed" in json_dict:
+                self.collapsed = json_dict["collapsed"]
+            else:
+                self.collapsed = False
 
     def add_dimension(self, possible_values: Set[Any], name: str = None):
         if not isinstance(possible_values, set):
@@ -69,6 +74,12 @@ class ADTree:
         self.possible_values.append(possible_values)
         self.names.append(name if name is not None else f"Dimension {self.num_dimensions + 1}")
         self.num_dimensions += 1
+
+    def collapse_last_dimension(self):
+        if self.num_dimensions < 2:
+            print("Cannot collapse the last dimension.")
+            return
+        self.collapsed = True
 
     def get_mapping(self, element: tuple) -> np.ndarray:
         if len(element) != self.num_dimensions:
@@ -82,6 +93,8 @@ class ADTree:
             template.append(value)
             mapping = template + (["*"] * (self.num_dimensions - 1 - i))
             mappings.append(tuple(mapping))
+        if self.collapsed:
+            del mappings[-2]
         return np.asarray(mappings)
     
     def get_level(self, mapping: tuple) -> int:
@@ -110,11 +123,16 @@ class ADTree:
                 continue
             elif not predicates[i].issubset(self.possible_values[i]):
                 raise ValueError(f"Predicate {predicates[i]} at index {i} is not in the possible values.")
+        if self.collapsed and last_predicate == self.num_dimensions - 2:
+            i = self.num_dimensions - 1
+            predicates[i] = self.possible_values[i]
 
         # Use NumPy for cartesian product
         arrays = [np.array(list(p)) for p in predicates]
         relevant_nodes = cartesian_product(arrays)
 
+        # if last_predicate >= self.num_dimensions-2 and self.collapsed_level is not None:
+            
         if not for_query:
             relevant_nodes = np.vstack([tuple("*" for _ in range(self.num_dimensions)), relevant_nodes])
 
@@ -124,7 +142,8 @@ class ADTree:
         return {
             "num_dimensions": self.num_dimensions,
             "possible_values": [list(values) for values in self.possible_values],
-            "names": self.names
+            "names": self.names,
+            "collapsed": self.collapsed
         }
     
     def get_size(self, unit: str = "MB") -> int:
@@ -474,7 +493,100 @@ class BFParameters(BaseSketchParameters):
     def build_sketch(self):
         return BloomFilter(size=self.size, hash_count=self.hash_count, n_values=self.n_values, p=self.p, seed=self.seed, epsilon=self.epsilon)
 
+def combinations_to_bits(col_names, relevant_combinations):
+    """
+    Given a list of column names (col_names) and a list of relevant combinations (list of lists),
+    returns a numpy array of shape (n, d) where n = len(relevant_combinations), d = len(num_cols),
+    and each row is a binary mask indicating which columns are present in the combination.
+    """
+    n = len(relevant_combinations)
+    d = len(col_names)
+    bits = np.zeros((n, d), dtype=int)
+    col_idx = {col: i for i, col in enumerate(col_names)}
+    for row, combo in enumerate(relevant_combinations):
+        for col in combo:
+            if col in col_idx:
+                bits[row, col_idx[col]] = 1
+    return bits
+
+class MaterializedCombinations:
+    def __init__(self, col_names: List[str], relevant_combinations: List[List[str]]):
+        self.col_names = col_names
+        self.relevant_combinations = relevant_combinations
+        self.bits = combinations_to_bits(col_names, relevant_combinations)
+        self.inverted_bits = 1 - self.bits
+
+    def find_best_match(self, num_predicates: List[int]) -> np.ndarray:
+        mask = np.zeros(len(self.col_names), dtype=int)
+        mask[num_predicates] = 1
+        # Find rows where all 1s in mask match
+        matches = (self.bits[:, mask == 1] == 1).all(axis=1)
+        # Among matches, count total 1s in each row
+        ones_count = self.bits[matches].sum(axis=1)
+        # Find the minimum number of 1s
+        min_ones = ones_count.min()
+        # Get indices in the original array
+        best_indices = np.where(matches)[0][ones_count == min_ones]
+        
+        return self.bits[best_indices][0].astype(bool)
+    
+    def lattice_expand(self, cubes: np.ndarray, fill='*') -> np.ndarray:
+        """
+        For an (n,d) integer array `cubes` return an
+        (n*C, d) object array where for every row every
+        subset of coordinates is replaced by `fill`.
+        """
+        n, d = cubes.shape
+
+        # --- broadcast over n rows ---------------------------------------
+        # repeat masks n times (n,C,d) → reshape to (n*C,d)
+        masks  = np.repeat(self.inverted_bits[None, ...], n, axis=0).reshape(-1, d)
+
+        # repeat data to same shape and copy into object dtype
+        data   = np.repeat(cubes, len(self.inverted_bits), axis=0).astype(object)
+
+        # where mask==0 keep value, where mask==1 place fill sentinel
+        data[masks.astype(bool)] = fill
+        return data
+    
+    def to_json(self) -> dict:
+        return {
+            "col_names": self.col_names,
+            "relevant_combinations": self.relevant_combinations
+        }
+    
+    def __eq__(self, value: MaterializedCombinations) -> bool:
+        return (self.col_names == value.col_names and
+                self.relevant_combinations == value.relevant_combinations and
+                np.array_equal(self.bits, value.bits) and
+                np.array_equal(self.inverted_bits, value.inverted_bits))
+    
+    @staticmethod
+    def from_json(json_dict: dict) -> MaterializedCombinations:
+        """
+        Build a MaterializedCombinations from a JSON dictionary.
+        """
+        col_names = json_dict["col_names"]
+        relevant_combinations = json_dict["relevant_combinations"]
+        return MaterializedCombinations(col_names=col_names, relevant_combinations=relevant_combinations)
+
 # Helper functions for Pacha Sketch
+def get_n_updates_customized(ad_tree_levels, num_combinations, levels, debug=False):
+    cat_index = ad_tree_levels
+    num_index = num_combinations * levels + 1
+    region_index = cat_index * num_index 
+    base_sketches = region_index
+    total = cat_index + num_index + region_index + base_sketches
+    if debug:
+        print("Nr. of updates in Pacha Sketch:")
+        print(f"cat_index: {cat_index}")
+        print(f"num_index: {num_index}")   
+        print(f"region_index: {region_index}")
+        print(f"base_sketches: {base_sketches}")
+        print(f"Total: {total}")
+
+    return cat_index, num_index, region_index
+
 def get_n_updates(n_cat, n_num, levels, debug=False):
     cat_index = n_cat + 1
     num_index = (1+n_num+(n_num*(n_num-1)/2)) * levels + 1
@@ -586,6 +698,21 @@ def _build_sketch_chunk(df_chunk: pd.DataFrame, sketch_proto: PachaSketch) -> Pa
     local_sketch.update_data_frame(df_chunk)
     return local_sketch
 
+def _allign_num_predicates(cover_bases: np.ndarray, num_predicates: np.ndarray, minimal_b_adic_covers: List[np.ndarray], tried_median: bool = False) -> List[List[int]]:
+    tried_median = False
+    if tried_median:
+        common_level = np.max([cover[:,0].max() for cover in minimal_b_adic_covers])
+    else:
+        common_level = np.median([cover[:,0].max() for cover in minimal_b_adic_covers])
+
+    range_sizes = cover_bases**common_level
+
+    indices = np.round(num_predicates / range_sizes[:,None]).astype(int)
+    new_num_predicates = (indices * range_sizes[:,None]).astype(int)
+    new_num_predicates[:, 1] -= 1
+
+    return new_num_predicates
+
 class PachaSketch:
     """
     A PachaSketch is a multi-dimensional sketch that efficiently answers multidimensional count queries.
@@ -597,6 +724,7 @@ class PachaSketch:
     bases: np.ndarray
     base_sketches: List[BaseSketch]
     ad_tree: ADTree
+    materialized: MaterializedCombinations
     numerical_bitmaps: List[NumericalBitmap] 
     cat_index: BloomFilter
     num_index: BloomFilter
@@ -610,7 +738,7 @@ class PachaSketch:
                  bases: List[int]= None, base_sketch_parameters: List[BaseSketchParameters]= None,
                  ad_tree: ADTree= None, 
                  cat_index_parameters: BFParameters= None, num_index_parameters: BFParameters= None, region_index_parameters: BFParameters= None, 
-                 epsilon: float = None, numerical_bitmaps_size: int = 100000, json_dict: dict = None):
+                 epsilon: float = None, materialized: MaterializedCombinations = None, numerical_bitmaps_size: int = 110_000, json_dict: dict = None):
         if json_dict is None:
             assert levels is not None and num_dimensions is not None, \
                 "Levels and number of dimensions must be provided."
@@ -659,6 +787,7 @@ class PachaSketch:
 
             self.max_values = np.full(len(num_col_map), -np.inf)
             self.min_values = np.full(len(num_col_map), np.inf)
+            self.materialized = materialized
             self.processed_elements = 0
             
         else:
@@ -695,6 +824,8 @@ class PachaSketch:
                     self.min_values[i] = math.inf
             self.min_values = np.asarray(self.min_values, dtype=int)
             self.epsilon = json_dict["epsilon"] 
+
+            self.materialized = MaterializedCombinations.from_json(json_dict["materialized"])
             if "processed_elements" in json_dict:
                 self.processed_elements = json_dict["processed_elements"]
             else:
@@ -703,11 +834,14 @@ class PachaSketch:
     def get_numerical_mappings(self, element: np.ndarray) -> np.ndarray:
         all_levels = np.arange(self.levels)
         matrix = self.bases[:, None] ** all_levels[None, :]
-        cubes = np.floor(element[:, None] / matrix[0, :]).astype(int).T
-        if len(self.bases) <= 3:
-            expanded_cubes = lattice_expand(cubes)
+        cubes = np.floor(element[:, None] / matrix).astype(int).T
+        if self.materialized is None:
+            if len(self.bases) <= 3:
+                expanded_cubes = lattice_expand(cubes)
+            else:
+                expanded_cubes = lattice_expand_k012(cubes)
         else:
-            expanded_cubes = lattice_expand_k012(cubes)
+            expanded_cubes = self.materialized.lattice_expand(cubes)
         all_levels = np.repeat(all_levels, expanded_cubes.shape[0] // all_levels.shape[0])
         mappings = np.column_stack([all_levels, expanded_cubes])
         # Add all wildcards option
@@ -770,7 +904,7 @@ class PachaSketch:
         self.processed_elements += 1
         return self
     
-    def minimal_spatial_b_adic_cover(self, num_dimensions, num_predicates: List[Tuple[int, int]]) -> np.ndarray:
+    def minimal_spatial_b_adic_cover(self, num_dimensions, num_predicates: List[Tuple[int, int]], tried_median: bool = False) -> np.ndarray:
         cover_bases = self.bases[num_dimensions]
         minimal_b_adic_covers = []
         for i in range(len(num_predicates)):
@@ -804,11 +938,16 @@ class PachaSketch:
 
         levels = []
         indices = []
+        partial_n_cubes = 0
         for combination in product(*minimal_b_adic_covers):
             level, downgraded = downgrade_combination(combination)
             if len(downgraded) == 0:
                 continue
             else:
+                partial_n_cubes += np.prod([len(cover) for cover in downgraded])
+                if partial_n_cubes > 1_000_000:
+                    new_num_predicates = _allign_num_predicates(cover_bases, num_predicates, minimal_b_adic_covers, tried_median=tried_median)
+                    return self.minimal_spatial_b_adic_cover(num_dimensions, new_num_predicates, tried_median=True)
                 combination_indices = cartesian_product(downgraded)
                 levels.append(np.full(len(combination_indices), level))
                 indices.append(combination_indices)
@@ -850,7 +989,17 @@ class PachaSketch:
   
         relevant_nodes = self.ad_tree.get_relevant_nodes(cat_predicates, for_query=True)
         
-        if len(num_dimensions) == 0:
+        if self.materialized is not None:
+            n_num = len(self.bases)
+            dim_indices = np.arange(n_num)
+            dim_indices = dim_indices[self.materialized.find_best_match(num_dimensions)]
+            num_predicates = [num_predicates[i] for i in dim_indices]
+            b_adic_cubes = self.minimal_spatial_b_adic_cover(dim_indices, num_predicates).astype(object)
+            if b_adic_cubes.shape[0] > 0:
+                empty_dim = np.full((b_adic_cubes.shape[0], n_num-len(dim_indices)), '*', dtype=object)
+                dims_to_add = np.setdiff1d(np.arange(n_num), dim_indices)
+                b_adic_cubes = np.insert(b_adic_cubes, dims_to_add+1-np.arange(len(dims_to_add)), empty_dim, axis=1)
+        elif len(num_dimensions) == 0:
             b_adic_cubes = np.asarray([[self.levels-1] + ['*']*len(num_predicates)])
         elif len(num_dimensions) <= 2:
             n_num = len(self.bases)
@@ -863,8 +1012,8 @@ class PachaSketch:
         else:
             # If there are more than 2 numerical dimensions, we need to use the full cover
             # This is a more expensive operation, so we only do it if necessary   
-            b_adic_cubes = self.minimal_spatial_b_adic_cover(self.bases, num_predicates).astype(object)
-
+            b_adic_cubes = self.minimal_spatial_b_adic_cover(np.arange(len(self.bases)), num_predicates).astype(object)
+        b_adic_cubes = b_adic_cubes.astype(object)
         if b_adic_cubes.shape[0] == 0:
             if debug:
                 print("All B-adic cubes are empty")
@@ -884,6 +1033,22 @@ class PachaSketch:
         # relevant_nodes = np.asarray(relevant_nodes, dtype='U32')
         # b_adic_cubes = np.asarray(b_adic_cubes, dtype='U32')
         cat_regions = relevant_nodes[self.cat_index.query_batch(relevant_nodes)]
+        if len(cat_regions) * len(b_adic_cubes) > 1_000_000:
+            if debug:
+                print("Too many candidate regions, skipping query.")
+            if detailed:
+                return np.asarray([]), {
+                    "relevant_nodes": len(relevant_nodes),
+                    "cat_regions": len(cat_regions),
+                    "b_adic_cubes": len(b_adic_cubes),
+                    "num_regions": 0,
+                    "candidate_regions": 0,
+                    "query_regions": 0,
+                    "queries_per_level": [0] * self.levels
+                }
+            else:
+                return np.asarray([]), None
+
         num_regions = b_adic_cubes[self.num_index.query_batch(b_adic_cubes)]
 
         candidate_regions = region_cross_product(cat_regions, num_regions)
@@ -922,6 +1087,21 @@ class PachaSketch:
         return query_regions, None
 
     def query(self, query: List[Any], detailed = False, debug=False) -> int:
+        if all(x == '*' for x in query):
+            if debug:
+                print("Query is all wildcards, returning total count.")
+            if detailed:
+                return self.processed_elements, {
+                    "relevant_nodes": 0,
+                    "cat_regions": 0,
+                    "b_adic_cubes": 0,
+                    "num_regions": 0,
+                    "candidate_regions": 0,
+                    "query_regions": 0,
+                    "queries_per_level": [0] * self.levels
+                }
+            return self.processed_elements
+        
         query_regions, details = self.get_subqueries(query, detailed=detailed, debug=debug)
 
         if query_regions.size == 0:
@@ -966,6 +1146,8 @@ class PachaSketch:
             raise ValueError("PachaSketches must have the same bases to merge.")
         if self.ad_tree != other.ad_tree:
             raise ValueError("PachaSketches must have the same ADTree to merge.")
+        if self.materialized != other.materialized:
+            raise ValueError("PachaSketches must have the same materialized combinations to merge.")
         # merged_sketch = copy.deepcopy(self)
         self.cat_index = self.cat_index.merge(other.cat_index)
         self.num_index = self.num_index.merge(other.num_index)
@@ -1031,7 +1213,8 @@ class PachaSketch:
             "base_sketches": [sketch.to_json() for sketch in self.base_sketches],
             "max_values": self.max_values.tolist(),
             "min_values": self.min_values.tolist(),
-            "epsilon": self.epsilon
+            "epsilon": self.epsilon,
+            "materialized": self.materialized.to_json()
         }
     
     def save_to_file(self, file_path: str):
