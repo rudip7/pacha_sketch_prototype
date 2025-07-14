@@ -984,3 +984,42 @@ class BloomFilter(BaseSketch):
             self.hash_functions == other.hash_functions
         )
     
+
+class NodeTracker(BaseSketch):
+    def __init__(self, json_dict: dict = None):
+        if json_dict is not None:
+            self.seen_nodes = set(tuple(node) for node in json_dict["seen_nodes"])
+        else:
+            self.seen_nodes = set()
+
+    def update(self, mapping: np.ndarray):
+        self.seen_nodes.add(tuple(mapping))
+
+    def update_batch(self, mappings: np.ndarray):
+        self.seen_nodes.update(map(tuple, mappings))
+
+    def query(self, candidate: np.ndarray) -> bool:
+        return tuple(candidate) in self.seen_nodes
+
+    def query_batch(self, candidates: np.ndarray) -> np.ndarray:
+        return np.array([tuple(c) in self.seen_nodes for c in candidates])
+    
+    def merge(self, other: NodeTracker) -> NodeTracker:
+        self.seen_nodes.update(other.seen_nodes)
+        return self
+    
+    def to_json(self) -> dict:
+        return {
+            "type": "NodeTracker",
+            "seen_nodes": [list(node) for node in self.seen_nodes]
+        }
+    
+    def get_size(self, unit: str = "MB") -> int:
+        return 0
+    
+    def __eq__(self, other):
+        return self.seen_nodes == other.seen_nodes
+    
+    
+    
+     

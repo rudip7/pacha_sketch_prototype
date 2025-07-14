@@ -78,21 +78,22 @@ def build_pacha_sketch_for_tpch(lineitem_df: pd.DataFrame):
     total_size = asizeof.asizeof(tpch_p_sketch)
     print(f"Total size of tpch_p_sketch: {total_size / 1024/1024} MB")
     
-    workers = (240 * 1024) // total_size
-    if workers < 2:
-        print(f"Total size of tpch_p_sketch is too large, proceeding with single-threaded update.")
-        tpch_p_sketch.update_data_frame(lineitem_df)
-    else:
-        workers = min(workers, 20)
-        print(f"Proceeding with {workers} workers for updating tpch_p_sketch.")
-        tpch_p_sketch = tpch_p_sketch.update_data_frame_multiprocessing(lineitem_df, workers=workers)
+    # workers = (240 * 1024) // total_size
+    # if total_size > 100_000:
+    #     print(f"Total size of tpch_p_sketch is too large, proceeding with single-threaded update.")
+    #     tpch_p_sketch.update_data_frame(lineitem_df)
+    # else:
+    workers = 2
+    print(f"Proceeding with {workers} workers for updating tpch_p_sketch.")
+    tpch_p_sketch = tpch_p_sketch.update_data_frame_multiprocessing(lineitem_df, workers=workers)
 
     return tpch_p_sketch
 
 
     
 def main():
-    scale_factors = [0.5, 1, 2, 4, 8]
+    scale_factors = [0.5, 2]
+    # scale_factors = [0.5]
 
     query_path = "../queries/tpch/tpch_random.json"
     with open(query_path, 'rb') as f:
@@ -108,8 +109,8 @@ def main():
         lineitem_df = pd.read_parquet(df_path)
         tpch_p_sketch = build_pacha_sketch_for_tpch(lineitem_df)
         print(f"Evaluating queries for {df_path}...")
-        results = evaluate_queries(tpch_p_sketch, tpch_queries_rand['queries'], tpch_p_sketch, path_to_file=f"../results/tpch/tpch_random_results_{sf}.csv")
-        results_2 = evaluate_queries(tpch_p_sketch, tpch_queries_rand_2['queries'], tpch_p_sketch, path_to_file=f"../results/tpch/tpch_random_results_2_{sf}.csv")
+        results = evaluate_queries(lineitem_df, tpch_queries_rand['queries'], tpch_p_sketch, path_to_file=f"../results/tpch/tpch_random_results_{sf}.csv")
+        results_2 = evaluate_queries(lineitem_df, tpch_queries_rand_2['queries'], tpch_p_sketch, path_to_file=f"../results/tpch/tpch_random_results_2_{sf}.csv")
         print(f"Results for scale factor {sf} saved.")
 
 if __name__ == "__main__":

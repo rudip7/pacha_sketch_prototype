@@ -41,7 +41,7 @@ import json
 import pandas as pd
 from ctypes import c_int32
 from itertools import product
-from .sketches import BaseSketch, CountMinSketch, BloomFilter
+from .sketches import BaseSketch, CountMinSketch, BloomFilter, NodeTracker
 from .encoders import BAdicRange, BAdicCube, NumericRange, minimal_b_adic_cover, sort_b_adic_ranges,\
      get_hilbert_ranges, minimal_b_adic_cover_array, downgrade_b_adic_range_indices
 
@@ -74,6 +74,9 @@ class ADTree:
         self.possible_values.append(possible_values)
         self.names.append(name if name is not None else f"Dimension {self.num_dimensions + 1}")
         self.num_dimensions += 1
+
+    def compute_distinct_values(self):
+        return np.prod([len(vals) for vals in self.possible_values])
 
     def collapse_last_dimension(self):
         if self.num_dimensions < 2:
@@ -774,7 +777,10 @@ class PachaSketch:
 
             assert ad_tree is not None, "ADTree must be provided."
             self.ad_tree = ad_tree
-            self.cat_index = cat_index_parameters.build_sketch()
+            if self.ad_tree.compute_distinct_values() < 10_000:
+                self.cat_index = NodeTracker()
+            else:
+                self.cat_index = cat_index_parameters.build_sketch()
             self.num_index = num_index_parameters.build_sketch()
             self.region_index = region_index_parameters.build_sketch() 
             # if epsilon is not None:
@@ -797,7 +803,10 @@ class PachaSketch:
             self.num_col_map = json_dict["num_col_map"]
             self.bases = np.asarray(json_dict["bases"], dtype=int)
             self.ad_tree = ADTree(json_dict=json_dict["ad_tree"])
-            self.cat_index = BloomFilter(json_dict=json_dict["cat_index"])
+            if json_dict["cat_index"]["type"] == "NodeTracker":
+                self.cat_index = NodeTracker(json_dict=json_dict["cat_index"])
+            else:
+                self.cat_index = BloomFilter(json_dict=json_dict["cat_index"])
             self.num_index = BloomFilter(json_dict=json_dict["num_index"])
             self.region_index = BloomFilter(json_dict=json_dict["region_index"])
 
