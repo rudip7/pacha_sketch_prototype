@@ -82,10 +82,10 @@ def build_pacha_sketch_for_tpch(lineitem_df: pd.DataFrame, rel_eps, bloom_p):
     #     print(f"Total size of tpch_p_sketch is too large, proceeding with single-threaded update.")
     #     tpch_p_sketch.update_data_frame(lineitem_df)
     # else:
-    # workers = 4
+    workers = 4
     # print(f"Proceeding with {workers} workers for updating tpch_p_sketch.")
-    tpch_p_sketch.update_data_frame(lineitem_df)
-    # tpch_p_sketch = tpch_p_sketch.update_data_frame_multiprocessing(lineitem_df, workers=workers)
+    #tpch_p_sketch.update_data_frame(lineitem_df)
+    tpch_p_sketch = tpch_p_sketch.update_data_frame_multiprocessing(lineitem_df, workers=workers)
     # tpch_p_sketch.save_to_file(f"../sketches/tpch/tpch_0.1_eps_{rel_eps}_p_{bloom_p}.json")
 
     return tpch_p_sketch
