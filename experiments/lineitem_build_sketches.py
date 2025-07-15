@@ -112,7 +112,7 @@ def main():
             diff = 0.5 / sf
             df_path = "../data/tpch/lineitem_0.5.parquet"
             lineitem_df = pd.read_parquet(df_path)
-            lineitem_df = lineitem_df.head(len(lineitem_df) // diff)
+            lineitem_df = lineitem_df.head(int(len(lineitem_df) // diff))
         else:
             df_path = f"../data/tpch/lineitem_{sf}.parquet"
             lineitem_df = pd.read_parquet(df_path)
