@@ -203,13 +203,20 @@ def evaluate_equivalent_pacha_sketches(df: pd.DataFrame, queries: list, p_sketch
 
 
 def evaluate_queries(df: pd.DataFrame, queries: list, p_sketch: PachaSketch, path_to_file: str = None):
-    print("Computing true counts...")
-    true_counts = np.array([query_df(df, query) for query in tqdm(queries, desc="True Count")], dtype=np.int32)
-
-    print("Computing estimates...")
     n_queries = len(queries)
+    print("Computing true counts...")
+    true_counts = np.empty(n_queries, dtype=np.int32)
+    baseline_runtimes = np.zeros(n_queries, dtype=np.float64)
+    i = 0
+    for query in tqdm(queries, desc="True Count"):
+        start_time = time.time()
+        true_counts[i] = query_df(df, query)
+        baseline_runtimes[i] = time.time() - start_time
+        i += 1
+                           
+    print("Computing estimates...")
+    
     n_levels = p_sketch.levels
-
     # Preallocate
     estimates = np.empty(n_queries, dtype=np.float64)
     relevant_nodes = np.empty(n_queries, dtype=np.int32)
@@ -236,6 +243,7 @@ def evaluate_queries(df: pd.DataFrame, queries: list, p_sketch: PachaSketch, pat
 
     # Construct dataframe in one go
     measurements = {
+        "baseline_runtimes": baseline_runtimes,
         "runtimes": runtimes,
         "true_counts": true_counts,
         "estimates": estimates,

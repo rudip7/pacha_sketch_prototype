@@ -22,10 +22,8 @@ reload(baselines)
 from lib.baselines import evaluate_queries
 
 def build_pacha_sketch_for_tpch(lineitem_df: pd.DataFrame, mem_budget: float):
-    rel_eps = 0.0005
     levels = 5
-    delta = 0.01
-    
+
     cat_col_map_tpch = [0, 1, 2, 3, 4]
     n_cat_tpch = len(cat_col_map_tpch)
     num_col_map_tpch = [5, 6, 7, 8, 9]
@@ -36,10 +34,30 @@ def build_pacha_sketch_for_tpch(lineitem_df: pd.DataFrame, mem_budget: float):
     num_combinations = 13
     cat_updates_tpch, num_updates_tpch, region_updates_tpch = get_n_updates_customized(ad_tree_levels, num_combinations, levels)
 
+    mem_cms = mem_budget / 2
+    
+    rel_eps = 0.0005
+    delta = 0.01
     error_eps = rel_eps / region_updates_tpch
-    cms_params = CMParameters(delta=delta, error_eps=error_eps)
+
+    mem_cms = mem_budget / 2 / levels
+    n_counters = mem_cms * 1024 * 1024 / 4
+    depth = 3
+    width = n_counters // depth
+    error_eps = np.e/width
+    while error_eps < rel_eps / region_updates_tpch and depth < 5:
+        depth += 1
+        width = n_counters // depth
+        error_eps = np.e/width
+    
+    if error_eps < rel_eps / region_updates_tpch:
+        error_eps = rel_eps / region_updates_tpch
+        cms_params = CMParameters(delta=delta, error_eps=error_eps)
+    else:
+        cms_params = CMParameters(width=int(width), depth=int(depth))
 
     mem_cms = cms_params.peek_memory() * levels
+   
     print(f"Memory for CMSs: {mem_cms} MB")
     mem_index = mem_budget - mem_cms
     p_num_index = num_updates_tpch / (num_updates_tpch + region_updates_tpch)
@@ -53,8 +71,8 @@ def build_pacha_sketch_for_tpch(lineitem_df: pd.DataFrame, mem_budget: float):
     n_bits_num_index = int(np.ceil(mem_num_index * 8 * 1024 * 1024))
     n_bits_region_index = int(np.ceil(mem_region_index * 8 * 1024 * 1024))
     k = 3
-    num_index_params = BFParameters(size=n_bits_num_index, k=k)
-    region_index_params = BFParameters(size=n_bits_region_index, k=k)
+    num_index_params = BFParameters(size=n_bits_num_index, hash_count=k)
+    region_index_params = BFParameters(size=n_bits_region_index, hash_count=k)
 
     tpch_ad_tree = ADTree.from_json("../sketches/ad_trees/tpch_lineitem.json")
     
@@ -133,4 +151,14 @@ def main(i: int):
     
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) != 2:
+        print("Usage: python3 mem_budget.py <index>")
+        sys.exit(1)
+    
+    try:
+        index = int(sys.argv[1])
+    except ValueError:
+        print("Index must be an integer.")
+        sys.exit(1)
+
+    main(index)
