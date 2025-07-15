@@ -464,6 +464,10 @@ class CMParameters(BaseSketchParameters):
             depth = int(np.ceil(np.log(1 / self.delta)))
             return width, depth
 
+    def peek_memory(self):
+        width, depth = self.peek_size()
+        return width * depth * 4 / (1024 * 1024)  
+
     def build_sketch(self):
         return CountMinSketch(width=self.width, depth=self.depth, error_eps=self.error_eps, delta=self.delta, seed=self.seed, epsilon=self.epsilon)
 
@@ -492,6 +496,10 @@ class BFParameters(BaseSketchParameters):
             size = BloomFilter._optimal_size(self.n_values, self.p)
             hash_count = BloomFilter._optimal_hash_count(size, self.n_values)
             return size, hash_count
+    
+    def peek_memory(self):
+        size, _ = self.peek_size()
+        return size / 8 / (1024 * 1024)  
 
     def build_sketch(self):
         return BloomFilter(size=self.size, hash_count=self.hash_count, n_values=self.n_values, p=self.p, seed=self.seed, epsilon=self.epsilon)
@@ -834,7 +842,10 @@ class PachaSketch:
             self.min_values = np.asarray(self.min_values, dtype=int)
             self.epsilon = json_dict["epsilon"] 
 
-            self.materialized = MaterializedCombinations.from_json(json_dict["materialized"])
+            if "materialized" in json_dict:
+                self.materialized = MaterializedCombinations.from_json(json_dict["materialized"])
+            else:
+                self.materialized = None
             if "processed_elements" in json_dict:
                 self.processed_elements = json_dict["processed_elements"]
             else:
@@ -1207,8 +1218,8 @@ class PachaSketch:
 
         return self
     
-    def to_json(self) -> dict:   
-        return {
+    def to_json(self) -> dict:
+        json_dict = {
             "levels": self.levels,
             "num_dimensions": self.num_dimensions,
             "cat_col_map": self.cat_col_map,
@@ -1222,9 +1233,12 @@ class PachaSketch:
             "base_sketches": [sketch.to_json() for sketch in self.base_sketches],
             "max_values": self.max_values.tolist(),
             "min_values": self.min_values.tolist(),
-            "epsilon": self.epsilon,
-            "materialized": self.materialized.to_json()
+            "epsilon": self.epsilon              
         }
+        if self.materialized is not None: 
+            json_dict["materialized"] = self.materialized.to_json()
+
+        return json_dict 
     
     def save_to_file(self, file_path: str):
         if file_path.endswith('.gz'):

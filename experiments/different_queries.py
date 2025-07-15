@@ -82,10 +82,10 @@ def build_pacha_sketch_for_tpch(lineitem_df: pd.DataFrame, rel_eps, bloom_p):
     #     print(f"Total size of tpch_p_sketch is too large, proceeding with single-threaded update.")
     #     tpch_p_sketch.update_data_frame(lineitem_df)
     # else:
-    workers = 4
+    # workers = 4
     # print(f"Proceeding with {workers} workers for updating tpch_p_sketch.")
-    # tpch_p_sketch.update_data_frame(lineitem_df)
-    tpch_p_sketch = tpch_p_sketch.update_data_frame_multiprocessing(lineitem_df, workers=workers)
+    tpch_p_sketch.update_data_frame(lineitem_df)
+    # tpch_p_sketch = tpch_p_sketch.update_data_frame_multiprocessing(lineitem_df, workers=workers)
     # tpch_p_sketch.save_to_file(f"../sketches/tpch/tpch_0.1_eps_{rel_eps}_p_{bloom_p}.json")
 
     return tpch_p_sketch
@@ -95,27 +95,50 @@ def build_pacha_sketch_for_tpch(lineitem_df: pd.DataFrame, rel_eps, bloom_p):
 def main():
     # scale_factors = [0.1]
     # scale_factors = [0.5]
+    rel_eps = 0.0005
+    p = 0.01
+
     sf = 0.1
-    probs = 2**np.arange(1,3)*0.005
-    rel_epsilons = 2**np.arange(1,3) * 0.00025
-
-    query_path = "../queries/tpch/tpch_random.json"
-    with open(query_path, 'rb') as f:
-        tpch_queries_rand = orjson.loads(f.read())
-
-    query_path = "../queries/tpch/tpch_random_2.json"
-    with open(query_path, 'rb') as f:
-        tpch_queries_rand_2 = orjson.loads(f.read())
-    
     df_path = f"../data/tpch/lineitem_{sf}.parquet"
     lineitem_df = pd.read_parquet(df_path)
-    for p, rel_eps in zip(probs, rel_epsilons):
-        print(f"Building PachaSketches with p: {p}, rel_eps: {rel_eps}")
-        tpch_p_sketch = build_pacha_sketch_for_tpch(lineitem_df, rel_eps=rel_eps, bloom_p=p)
-        print(f"Evaluating queries for {df_path}...")
-        results = evaluate_queries(lineitem_df, tpch_queries_rand['queries'], tpch_p_sketch, path_to_file=f"../results/tpch/tpch_random_results_0.1_eps_{rel_eps}_p_{p}.csv")
-        results_2 = evaluate_queries(lineitem_df, tpch_queries_rand_2['queries'], tpch_p_sketch, path_to_file=f"../results/tpch/tpch_random_results_2_0.1_eps_{rel_eps}_p_{p}.csv")
-        print(f"Results for scale factor {sf} saved.")
+    # lineitem_df = lineitem_df.head(10)
+    tpch_p_sketch = build_pacha_sketch_for_tpch(lineitem_df, rel_eps=rel_eps, bloom_p=p)
+
+    print("Evaluating selectivity queries...")
+    selectivities = np.array([0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64])
+    for sel in selectivities:
+        print(f"Evaluating selectivity {sel}...")
+        query_path = f"../queries/tpch/tpch_sel_{sel}.json"
+        with open(query_path, 'rb') as f:
+            tpch_queries = orjson.loads(f.read())
+        results = evaluate_queries(lineitem_df, tpch_queries['queries'], tpch_p_sketch, path_to_file=f"../results/tpch/selectivities/tpch_sel_{sel}.csv")
+    
+    print("Evaluating categorical queries...")
+    n_cat = np.arange(1, 6)
+    for n in n_cat:
+        print(f"Evaluating categorical queries with {n} predicates...")
+        query_path = f"../queries/tpch/tpch_cat_{n}_cat.json"
+        with open(query_path, 'rb') as f:
+            tpch_queries = orjson.loads(f.read())
+        results = evaluate_queries(lineitem_df, tpch_queries['queries'], tpch_p_sketch, path_to_file=f"../results/tpch/categorical/tpch_cat_{n}.csv")
+    
+    print("Evaluating numerical queries...")
+    n_num = np.arange(1, 6)
+    for n in n_num:
+        print(f"Evaluating numerical queries with {n} predicates...")
+        query_path = f"../queries/tpch/tpch_num_{n}_num.json"
+        with open(query_path, 'rb') as f:
+            tpch_queries = orjson.loads(f.read())
+        results = evaluate_queries(lineitem_df, tpch_queries['queries'], tpch_p_sketch, path_to_file=f"../results/tpch/numerical/tpch_num_{n}.csv")
+    
+    print("Evaluating mixed queries...")
+    n_mix = np.arange(1, 6)
+    for n in n_mix:
+        print(f"Evaluating mixed queries with {n} predicates...")
+        query_path = f"../queries/tpch/tpch_comb_{n}_comb.json"
+        with open(query_path, 'rb') as f:
+            tpch_queries = orjson.loads(f.read())
+        results = evaluate_queries(lineitem_df, tpch_queries['queries'], tpch_p_sketch, path_to_file=f"../results/tpch/mixed/tpch_mix_{n}.csv")
 
 if __name__ == "__main__":
     main()

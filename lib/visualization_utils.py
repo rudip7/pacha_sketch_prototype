@@ -16,6 +16,34 @@ import pandas as pd
 from ctypes import c_int32
 from itertools import product
 
+
+def plot_boxplot(dfs, col_y='normalized_error', y_label='normalized error', x_label="approach", 
+                 figsize=(8, 6), log_scale=False, palette=None, rotate=False, target = None,  path_to_file=None):
+    # Add 'approach' column if missing (assumes each df has a unique approach)
+    for df in dfs:
+        if 'approach' not in df.columns:
+            raise ValueError("Each DataFrame must have an 'approach' column.")
+
+    combined_df = pd.concat(dfs, ignore_index=True)
+    plt.figure(figsize=figsize)
+    sns.boxplot(x='approach', y=col_y, hue='approach', data=combined_df, palette=palette)
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
+    if target is not None:
+        median_n_queries = dfs[-1]['query_regions'].median()
+        plt.axhline(target*median_n_queries, color='orange', linestyle='-', linewidth=2, label='Target')
+        plt.axhline(target, color='red', linestyle='--', linewidth=2, label='Target')
+    # plt.title('Comparison of Normalized Error by Approach')
+    plt.grid(True, axis='y', alpha=0.5, linestyle='--')
+    plt.tight_layout()
+    if log_scale:
+        plt.yscale('log')
+    if rotate:
+        plt.xticks(rotation=-45)
+    if path_to_file is not None:
+        plt.savefig(path_to_file, bbox_inches='tight', pad_inches=0.05) 
+    plt.show()
+
 def visualize_badic_cover(b_adic_ranges, show_labels=False):
     """
     Visualize the minimal b-adic cover of a range.

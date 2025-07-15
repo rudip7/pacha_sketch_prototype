@@ -95,7 +95,7 @@ def build_pacha_sketch_for_retail(delta=0.01, rel_eps=0.0005, bloom_p=0.01, leve
     with open(query_path, 'rb') as f:
         retail_queries_rand = orjson.loads(f.read())
 
-    retail_p_sketch = retail_p_sketch.update_data_frame_multiprocessing(retail_df, workers=10)
+    retail_p_sketch = retail_p_sketch.update_data_frame_multiprocessing(retail_df, workers=5)
     # retail_p_sketch.update_data_frame(retail_df)
     evaluate_queries(retail_df, retail_queries_rand["queries"][:200], retail_p_sketch, path_to_file=f"../results/datasets/retail_rand_p_{bloom_p}_eps_{rel_eps}.csv")
 
@@ -134,7 +134,7 @@ def build_pacha_sketch_for_bank(delta=0.01, rel_eps=0.0005, bloom_p=0.01, levels
     with open(query_path, 'rb') as f:
         bank_queries_rand = orjson.loads(f.read())
 
-    bank_p_sketch = bank_p_sketch.update_data_frame_multiprocessing(bank_df, workers=10)
+    bank_p_sketch = bank_p_sketch.update_data_frame_multiprocessing(bank_df, workers=5)
     bank_results_rand = evaluate_queries(bank_df, bank_queries_rand["queries"][:200], bank_p_sketch, path_to_file=f"../results/datasets/bank_rand_p_{bloom_p}_eps_{rel_eps}.csv")
     # bank_p_sketch.update_data_frame(bank_df)
     return bank_p_sketch
