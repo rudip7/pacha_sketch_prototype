@@ -18,7 +18,7 @@ from itertools import product
 
 
 def plot_boxplot(dfs, col_y='normalized_error', y_label='normalized error', x_label="approach", 
-                 figsize=(8, 6), log_scale=False, palette=None, rotate=False, target = None,  path_to_file=None):
+                 figsize=(8, 6), log_scale=False, palette=None, rotation=False, target = None,  path_to_file=None):
     # Add 'approach' column if missing (assumes each df has a unique approach)
     for df in dfs:
         if 'approach' not in df.columns:
@@ -30,16 +30,36 @@ def plot_boxplot(dfs, col_y='normalized_error', y_label='normalized error', x_la
     plt.xlabel(x_label)
     plt.ylabel(y_label)
     if target is not None:
-        median_n_queries = dfs[-1]['query_regions'].median()
-        plt.axhline(target*median_n_queries, color='orange', linestyle='-', linewidth=2, label='Target')
-        plt.axhline(target, color='red', linestyle='--', linewidth=2, label='Target')
+        # Draw a red line through the given set of values (expects a sequence of y-values, one per approach)
+        if isinstance(target, (list, np.ndarray, pd.Series)):
+            # Get unique approaches in the order they appear in the combined DataFrame
+            approaches = combined_df['approach'].unique()
+            # If target length matches number of approaches, plot line
+            if len(target) == len(approaches):
+                median_n_queries = []
+                for df in dfs:
+                    median_n_queries.append(df['query_regions'].median())
+                x = np.arange(len(approaches))
+                median_errors = np.array(median_n_queries) * np.array(target)
+                # Extend the lines horizontally to the edges of the plot
+                x_min, x_max = -0.5, len(approaches) - 0.5
+                plt.plot([x_min, x_max], [median_errors[0], median_errors[-1]], color='orange', linestyle='-', linewidth=2, label='Target (Median)')
+                plt.plot([x_min, x_max], [target[0], target[-1]], color='red', linestyle='--', linewidth=2, label='Target')
+            else:
+                raise ValueError("Length of target values must match number of approaches.")
+        else:
+            median_n_queries = dfs[-1]['query_regions'].median()
+            plt.axhline(target*median_n_queries, color='orange', linestyle='-', linewidth=2, label='Target')
+            plt.axhline(target, color='red', linestyle='--', linewidth=2, label='Target')
+
+
     # plt.title('Comparison of Normalized Error by Approach')
     plt.grid(True, axis='y', alpha=0.5, linestyle='--')
     plt.tight_layout()
     if log_scale:
         plt.yscale('log')
-    if rotate:
-        plt.xticks(rotation=-45)
+    if rotation is not None:
+        plt.xticks(rotation=rotation, ha='center')
     if path_to_file is not None:
         plt.savefig(path_to_file, bbox_inches='tight', pad_inches=0.05) 
     plt.show()
