@@ -63,7 +63,7 @@ from lib.baselines import CentralDPServer, LDPServer, LDPEncoderGRR, filter_df, 
 
 ## Section 1. Accuracy Experiments Different Datasets
 
-def build_pacha_sketch_for_retail(file_path: str, delta=0.01, rel_eps=0.0005, bloom_p=0.01, levels=6):
+def build_pacha_sketch_for_retail(delta=0.01, rel_eps=0.0005, bloom_p=0.01, levels=6) -> PachaSketch:
     """
     Builds a PachaSketch for the retail dataset with specified parameters.
     """
@@ -91,12 +91,17 @@ def build_pacha_sketch_for_retail(file_path: str, delta=0.01, rel_eps=0.0005, bl
         num_index_parameters=BFParameters(n_values=len(retail_df) * num_updates_retail, p=bloom_p),
         region_index_parameters=BFParameters(n_values=len(retail_df) * region_updates_retail, p=bloom_p))
 
+    query_path = "../queries/retail/online_retail_random.json"
+    with open(query_path, 'rb') as f:
+        retail_queries_rand = orjson.loads(f.read())
+
     retail_p_sketch = retail_p_sketch.update_data_frame_multiprocessing(retail_df, workers=10)
     # retail_p_sketch.update_data_frame(retail_df)
-    print(retail_p_sketch.processed_elements / len(retail_df))
-    retail_p_sketch.save_to_file(file_path)
+    evaluate_queries(retail_df, retail_queries_rand["queries"][:200], retail_p_sketch, path_to_file=f"../results/datasets/retail_rand_p_{bloom_p}_eps_{rel_eps}.csv")
 
-def build_pacha_sketch_for_bank(file_path: str, delta=0.01, rel_eps=0.0005, bloom_p=0.01, levels=6):
+    return retail_p_sketch
+
+def build_pacha_sketch_for_bank(delta=0.01, rel_eps=0.0005, bloom_p=0.01, levels=6) -> PachaSketch:
     """
     Builds a PachaSketch for the bank marketing dataset with specified parameters.
     """
@@ -124,12 +129,17 @@ def build_pacha_sketch_for_bank(file_path: str, delta=0.01, rel_eps=0.0005, bloo
         num_index_parameters=BFParameters(n_values=len(bank_df) * num_updates_bank, p=bloom_p),
         region_index_parameters=BFParameters(n_values=len(bank_df) * region_updates_bank, p=bloom_p))
 
-    bank_p_sketch = bank_p_sketch.update_data_frame_multiprocessing(bank_df, workers=10)
-    # bank_p_sketch.update_data_frame(bank_df)
-    print(bank_p_sketch.processed_elements / len(bank_df))
-    bank_p_sketch.save_to_file(file_path)
+    bank_df = pd.read_parquet("../data/clean/bank_marketing.parquet")
+    query_path = "../queries/bank/bank_random.json"
+    with open(query_path, 'rb') as f:
+        bank_queries_rand = orjson.loads(f.read())
 
-def build_pacha_sketch_for_census(file_path: str, delta=0.01, rel_eps=0.0005, bloom_p=0.01, levels=6):
+    bank_p_sketch = bank_p_sketch.update_data_frame_multiprocessing(bank_df, workers=10)
+    bank_results_rand = evaluate_queries(bank_df, bank_queries_rand["queries"][:200], bank_p_sketch, path_to_file=f"../results/datasets/bank_rand_p_{bloom_p}_eps_{rel_eps}.csv")
+    # bank_p_sketch.update_data_frame(bank_df)
+    return bank_p_sketch
+
+def build_pacha_sketch_for_census(delta=0.01, rel_eps=0.0005, bloom_p=0.01, levels=6) -> PachaSketch :
     """
     Builds a PachaSketch for the census dataset with specified parameters.
     """
@@ -157,10 +167,15 @@ def build_pacha_sketch_for_census(file_path: str, delta=0.01, rel_eps=0.0005, bl
         num_index_parameters=BFParameters(n_values=len(census_df) * num_updates_census, p=bloom_p),
         region_index_parameters=BFParameters(n_values=len(census_df) * region_updates_census, p=bloom_p))
 
+    census_df = pd.read_parquet("../data/clean/acs_folktables.parquet")
+    query_path = "../queries/census/census_random.json"
+    with open(query_path, 'rb') as f:
+        census_queries_rand = orjson.loads(f.read())
+    
     census_p_sketch = census_p_sketch.update_data_frame_multiprocessing(census_df, workers=5)
+    census_results_rand = evaluate_queries(census_df, census_queries_rand["queries"][:200], census_p_sketch, path_to_file=f"../results/datasets/census_rand_p_{bloom_p}_eps_{rel_eps}.csv")
     # census_p_sketch.update_data_frame(census_df)
-    print(census_p_sketch.processed_elements / len(census_df))
-    census_p_sketch.save_to_file(file_path)
+    return census_p_sketch
     
 def main():
     """
@@ -172,36 +187,26 @@ def main():
     # rel_eps = 0.0005
     # bloom_p = 0.01
 
-    query_path = "../queries/retail/online_retail_random.json"
-    with open(query_path, 'rb') as f:
-        retail_queries_rand = orjson.loads(f.read())
+    rel_eps = 0.0005
+    p = 0.01
+    print(f"Building PachaSketches with p: {p}, rel_eps: {rel_eps}") 
+    
+    # Build PachaSketch for Bank Marketing dataset
+    print("Bank")
+    bank_p_sketch = build_pacha_sketch_for_bank(delta, rel_eps, p, levels)
 
-    query_path = "../queries/bank/bank_random.json"
-    with open(query_path, 'rb') as f:
-        bank_queries_rand = orjson.loads(f.read())
+    # Build PachaSketch for Retail dataset
+    print("Retail")
+    retail_p_sketch = build_pacha_sketch_for_retail(delta, rel_eps, p, levels)
 
-    census_df = pd.read_parquet("../data/clean/acs_folktables.parquet")
-    query_path = "../queries/census/census_random.json"
-    with open(query_path, 'rb') as f:
-        census_queries_rand = orjson.loads(f.read())
-
-    # print(f"Default PachaSketches built successfully.")
-
-    # Build Pacha Sketches with decreasing size
-    probs = 2**np.arange(7)*0.005
-    rel_epsilons = 2**np.arange(7) * 0.00025
-    for p, rel_eps in zip(probs, rel_epsilons):
-        print(f"Building PachaSketches with p: {p}, rel_eps: {rel_eps}") 
-        
-        # Build PachaSketch for Bank Marketing dataset
-        build_pacha_sketch_for_bank(f"../sketches/bank/bank_p{p}_eps{rel_eps}.json", delta, rel_eps, p, levels)
-
-        # Build PachaSketch for Retail dataset
-        build_pacha_sketch_for_retail(f"../sketches/retail/retail_p{p}_eps{rel_eps}.json", delta, rel_eps, p, levels)
-
-        # Build PachaSketch for Census dataset
-        build_pacha_sketch_for_census(f"../sketches/census/census_p{p}_eps{rel_eps}.json", delta, rel_eps, p, levels)
+    # Build PachaSketch for Census dataset
+    print("Census")
+    census_p_sketch = build_pacha_sketch_for_census(delta, rel_eps, p, levels)
     print(f"PachaSketches built successfully.")
+
+    bank_p_sketch.save_to_file(f"../sketches/bank/bank_p{p}_eps{rel_eps}.json")
+    retail_p_sketch.save_to_file(f"../sketches/retail/retail_p{p}_eps{rel_eps}.json")
+    census_p_sketch.save_to_file(f"../sketches/census/census_p{p}_eps{rel_eps}.json")
 
 
 if __name__ == "__main__":
