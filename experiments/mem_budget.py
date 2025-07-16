@@ -154,6 +154,9 @@ def main(i: int):
         else:
             temp_df = pd.concat([temp_df, chunk], ignore_index=True)
         results = evaluate_queries(temp_df, tpch_queries_rand['queries'], tpch_p_sketch, path_to_file=f"../results/tpch/fix_size/tpch_fix_{mem_budget}_MB_{j}.csv")
+        med = results['normalized_error'].median()
+        if med < 0.0 or med > 1.0:
+            break
     print(f"Finally done!")
     
 
