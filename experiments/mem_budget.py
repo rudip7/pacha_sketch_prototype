@@ -141,12 +141,15 @@ def main(i: int):
 
     print(f"\nMemory budget: {mem_budget / 1024 / 1024} MB\n")
     tpch_p_sketch = build_pacha_sketch_for_tpch(lineitem_df, mem_budget)
-
+    
     for j, chunk in enumerate(chunks):
         print(f"Processing chunk {j + 1}/{len(chunks)}...")
         tpch_p_sketch = tpch_p_sketch.update_data_frame_multiprocessing(chunk, workers=n_workers)
-        results = evaluate_queries(lineitem_df, tpch_queries_rand['queries'], tpch_p_sketch, path_to_file=f"../results/tpch/fix_size/tpch_fix_{mem_budget}_MB_{j}.csv")
-
+        if j == 0:
+            temp_df = chunk
+        else:
+            temp_df = pd.concat([temp_df, chunk], ignore_index=True)
+        results = evaluate_queries(temp_df, tpch_queries_rand['queries'], tpch_p_sketch, path_to_file=f"../results/tpch/fix_size/tpch_fix_{mem_budget}_MB_{j}.csv")
     print(f"Finally done!")
     
 
