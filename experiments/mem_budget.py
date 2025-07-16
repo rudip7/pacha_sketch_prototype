@@ -147,8 +147,8 @@ def main(i: int):
     
     for j, chunk in enumerate(chunks):
         print(f"Processing chunk {j + 1}/{len(chunks)}...")
-        tpch_p_sketch = tpch_p_sketch.update_data_frame(chunk)
-        # tpch_p_sketch = tpch_p_sketch.update_data_frame_multiprocessing(chunk, workers=n_workers)
+#        tpch_p_sketch = tpch_p_sketch.update_data_frame(chunk)
+        tpch_p_sketch = tpch_p_sketch.update_data_frame_multiprocessing(chunk, workers=n_workers)
         if j == 0:
             temp_df = chunk
         else:
