@@ -797,7 +797,7 @@ class PachaSketch:
             self.min_values = np.full(len(num_col_map), np.inf)
             self.materialized = materialized
             self.processed_elements = 0
-            self.max_n_cubes = 50_000
+            self.max_n_cubes = 1_000_000
             
         else:
             self.levels = json_dict["levels"]

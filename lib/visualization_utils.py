@@ -17,8 +17,46 @@ from ctypes import c_int32
 from itertools import product
 
 
-def plot_boxplot(dfs, col_y='normalized_error', y_label='normalized error', x_label="approach", 
-                 figsize=(8, 6), log_scale=False, palette=None, rotation=False, target = None,  path_to_file=None):
+def plot_relative_error(
+    results: list[pd.DataFrame],
+    labels: list[str],
+    x_label: str = '~ nr. rows',
+    figsize: tuple[int, int] = (5, 3),
+    color: str = 'tab:blue'
+):
+    fig, ax = plt.subplots(figsize=figsize)
+    medians = [1 - df['relative_error'].median() for df in results]
+    q25 = [1 - df['relative_error'].quantile(0.25) for df in results]
+    q75 = [1 - df['relative_error'].quantile(0.75) for df in results]
+
+    ax.axhline(1, color='red', linestyle='-', label='ground truth')
+    ax.plot(range(len(medians)), medians, color=color, marker='o', label='median')
+    ax.fill_between(range(len(medians)), q25, q75, color=color, alpha=0.2, label='Q25-Q75 Interval')
+    ax.set_xticks(range(len(labels)))
+    ax.set_xticklabels(labels)
+    ax.set_xlabel('~ nr. rows')
+    ax.set_ylabel('relative accuracy')
+    ax.set_ylim(0.0, 1.05)
+    ax.legend()
+    plt.grid(True, axis='y', alpha=0.5, linestyle='--')
+    plt.tight_layout()
+    plt.show()
+
+    return fig
+
+def plot_boxplot(
+    dfs, 
+    col_y='normalized_error', 
+    y_label='normalized error', 
+    x_label="approach", 
+    figsize=(8, 6), 
+    log_scale=False, 
+    palette=None, 
+    rotation=False, 
+    target=None,  
+    path_to_file=None,
+    show_legend=False
+):
     # Add 'approach' column if missing (assumes each df has a unique approach)
     for df in dfs:
         if 'approach' not in df.columns:
@@ -52,17 +90,18 @@ def plot_boxplot(dfs, col_y='normalized_error', y_label='normalized error', x_la
             plt.axhline(target*median_n_queries, color='orange', linestyle='-', linewidth=2, label='Target')
             plt.axhline(target, color='red', linestyle='--', linewidth=2, label='Target')
 
-
-    # plt.title('Comparison of Normalized Error by Approach')
     plt.grid(True, axis='y', alpha=0.5, linestyle='--')
     plt.tight_layout()
     if log_scale:
         plt.yscale('log')
     if rotation is not None:
         plt.xticks(rotation=rotation, ha='center')
+    if not show_legend:
+        plt.gca().get_legend().remove() if plt.gca().get_legend() else None
     if path_to_file is not None:
         plt.savefig(path_to_file, bbox_inches='tight', pad_inches=0.05) 
     plt.show()
+    
 
 def visualize_badic_cover(b_adic_ranges, show_labels=False):
     """
