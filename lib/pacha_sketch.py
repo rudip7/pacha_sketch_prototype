@@ -709,13 +709,7 @@ def _build_sketch_chunk(df_chunk: pd.DataFrame, sketch_proto: PachaSketch) -> Pa
     local_sketch.update_data_frame(df_chunk)
     return local_sketch
 
-def _allign_num_predicates(cover_bases: np.ndarray, num_predicates: np.ndarray, minimal_b_adic_covers: List[np.ndarray], tried_median: bool = False) -> List[List[int]]:
-    tried_median = False
-    if tried_median:
-        common_level = np.max([cover[:,0].max() for cover in minimal_b_adic_covers])
-    else:
-        common_level = np.median([cover[:,0].max() for cover in minimal_b_adic_covers])
-
+def _allign_num_predicates(cover_bases: np.ndarray, num_predicates: np.ndarray, minimal_b_adic_covers: List[np.ndarray], common_level: int) -> List[List[int]]:
     range_sizes = cover_bases**common_level
 
     indices = np.round(num_predicates / range_sizes[:,None]).astype(int)
@@ -803,6 +797,7 @@ class PachaSketch:
             self.min_values = np.full(len(num_col_map), np.inf)
             self.materialized = materialized
             self.processed_elements = 0
+            self.max_n_cubes = 50_000
             
         else:
             self.levels = json_dict["levels"]
@@ -924,7 +919,7 @@ class PachaSketch:
         self.processed_elements += 1
         return self
     
-    def minimal_spatial_b_adic_cover(self, num_dimensions, num_predicates: List[Tuple[int, int]], tried_median: bool = False) -> np.ndarray:
+    def minimal_spatial_b_adic_cover(self, num_dimensions, num_predicates: List[Tuple[int, int]], reduced_to_level: int = -1) -> np.ndarray:
         cover_bases = self.bases[num_dimensions]
         minimal_b_adic_covers = []
         for i in range(len(num_predicates)):
@@ -965,9 +960,15 @@ class PachaSketch:
                 continue
             else:
                 partial_n_cubes += np.prod([len(cover) for cover in downgraded])
-                if partial_n_cubes > 1_000_000:
-                    new_num_predicates = _allign_num_predicates(cover_bases, num_predicates, minimal_b_adic_covers, tried_median=tried_median)
-                    return self.minimal_spatial_b_adic_cover(num_dimensions, new_num_predicates, tried_median=True)
+                if partial_n_cubes > self.max_n_cubes:                  
+                    if reduced_to_level == -1:
+                        reduced_to_level = int(np.ceil(np.median([cover[:,0].max() for cover in minimal_b_adic_covers])))
+                    elif reduced_to_level < self.levels - 2:
+                        reduced_to_level += 1
+                    else:
+                        return np.asarray([self.levels-1]+['*'] * len(num_dimensions)) 
+                    new_num_predicates = _allign_num_predicates(cover_bases, num_predicates, minimal_b_adic_covers, common_level=reduced_to_level)
+                    return self.minimal_spatial_b_adic_cover(num_dimensions, new_num_predicates, reduced_to_level=reduced_to_level)
                 combination_indices = cartesian_product(downgraded)
                 levels.append(np.full(len(combination_indices), level))
                 indices.append(combination_indices)
@@ -1034,7 +1035,7 @@ class PachaSketch:
             # This is a more expensive operation, so we only do it if necessary   
             b_adic_cubes = self.minimal_spatial_b_adic_cover(np.arange(len(self.bases)), num_predicates).astype(object)
         b_adic_cubes = b_adic_cubes.astype(object)
-        if b_adic_cubes.shape[0] == 0:
+        if b_adic_cubes.shape[0] == 0 or relevant_nodes.shape[0] > 100_000:
             if debug:
                 print("All B-adic cubes are empty")
             if detailed:
