@@ -147,13 +147,16 @@ def main(i: int):
     
     for j, chunk in enumerate(chunks):
         print(f"Processing chunk {j + 1}/{len(chunks)}...")
-        tpch_p_sketch = tpch_p_sketch.update_data_frame(chunk)
-        # tpch_p_sketch = tpch_p_sketch.update_data_frame_multiprocessing(chunk, workers=n_workers)
+#        tpch_p_sketch = tpch_p_sketch.update_data_frame(chunk)
+        tpch_p_sketch = tpch_p_sketch.update_data_frame_multiprocessing(chunk, workers=n_workers)
         if j == 0:
             temp_df = chunk
         else:
             temp_df = pd.concat([temp_df, chunk], ignore_index=True)
         results = evaluate_queries(temp_df, tpch_queries_rand['queries'], tpch_p_sketch, path_to_file=f"../results/tpch/fix_size/tpch_fix_{mem_budget}_MB_{j}.csv")
+        med = results['normalized_error'].median()        
+        if med < 0.0 or med > 1.0:
+            break
     print(f"Finally done!")
     
 
