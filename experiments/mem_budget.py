@@ -21,7 +21,7 @@ from lib import baselines
 reload(baselines)
 from lib.baselines import evaluate_queries
 
-def build_pacha_sketch_for_tpch(lineitem_df: pd.DataFrame, mem_budget: float):
+def build_pacha_sketch_for_tpch(lineitem_df: pd.DataFrame, mem_budget: float, n_cubes: int = 50_000) -> PachaSketch:
     levels = 5
 
     cat_col_map_tpch = [0, 1, 2, 3, 4]
@@ -33,14 +33,12 @@ def build_pacha_sketch_for_tpch(lineitem_df: pd.DataFrame, mem_budget: float):
     ad_tree_levels = len(cat_col_map_tpch)
     num_combinations = 13
     cat_updates_tpch, num_updates_tpch, region_updates_tpch = get_n_updates_customized(ad_tree_levels, num_combinations, levels)
-
-    mem_cms = mem_budget / 2
     
     rel_eps = 0.0005
     delta = 0.01
     error_eps = rel_eps / region_updates_tpch
 
-    mem_cms = mem_budget / 2 / levels
+    mem_cms = mem_budget * 0.75 / levels
     n_counters = mem_cms * 1024 * 1024 / 4
     depth = 3
     width = n_counters // depth
@@ -88,6 +86,8 @@ def build_pacha_sketch_for_tpch(lineitem_df: pd.DataFrame, mem_budget: float):
         num_index_parameters=num_index_params,
         region_index_parameters= region_index_params
         )
+    
+    tpch_p_sketch.max_n_cubes = n_cubes
 
     col_names = ['n_shipdate', 'n_commitdate', 'n_receiptdate', 'n_extendedprice', 'n_quantity']
     relevant_combinations = [
@@ -124,11 +124,14 @@ def main(i: int):
     mem_budgets = 2**np.arange(6) * 64
     workers = np.asarray([10, 8, 6, 4, 2, 1])
 
+    max_n_cubes = [  1_000,  25_000,  50_000,  50_000, 50_000, 50_000]
+
     if i < 0 or i >= len(mem_budgets):
         raise ValueError(f"Invalid index {i}. Must be between 0 and {len(mem_budgets) - 1}.")
     
     mem_budget = mem_budgets[i]
     n_workers = workers[i]
+    n_cubes = max_n_cubes[i]
     
     query_path = "../queries/tpch/all_tpch_random.json"
     with open(query_path, 'rb') as f:
@@ -140,11 +143,12 @@ def main(i: int):
     chunks = np.array_split(lineitem_df, 240)
 
     print(f"\nMemory budget: {mem_budget / 1024 / 1024} MB\n")
-    tpch_p_sketch = build_pacha_sketch_for_tpch(lineitem_df, mem_budget)
+    tpch_p_sketch = build_pacha_sketch_for_tpch(lineitem_df, mem_budget, n_cubes)
     
     for j, chunk in enumerate(chunks):
         print(f"Processing chunk {j + 1}/{len(chunks)}...")
-        tpch_p_sketch = tpch_p_sketch.update_data_frame_multiprocessing(chunk, workers=n_workers)
+        tpch_p_sketch = tpch_p_sketch.update_data_frame(chunk)
+        # tpch_p_sketch = tpch_p_sketch.update_data_frame_multiprocessing(chunk, workers=n_workers)
         if j == 0:
             temp_df = chunk
         else:
