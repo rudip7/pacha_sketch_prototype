@@ -3,49 +3,28 @@ from __future__ import annotations
 import math
 
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
-import matplotlib.patches as patches
 import copy
 from typing import Any
-from numpy.typing import NDArray
 
 from tqdm import tqdm
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-import hashlib
-import random
-
-from hilbert import decode
-from hilbert import encode
 
 import orjson
 import gzip
 
 import multiprocessing as mp
 import threading
-from functools import partial
-from functools       import reduce
 
-
-
-from itertools import islice
-from collections import defaultdict
 from multiprocessing import Pool, cpu_count
 from pympler import asizeof
 
-import seaborn as sns
-import time
 import json
 import pandas as pd
-from ctypes import c_int32
 from itertools import product
 from .sketches import BaseSketch, CountMinSketch, BloomFilter, NodeTracker
 from .encoders import BAdicRange, BAdicCube, NumericRange, minimal_b_adic_cover, sort_b_adic_ranges,\
      get_hilbert_ranges, minimal_b_adic_cover_array, downgrade_b_adic_range_indices
 
-from typing import List, Tuple, Dict, Any, Set
+from typing import List, Tuple, Any, Set
 
 
 __all__ = ["PachaSketch", "ADTree", "NumericalBitmap", "CMParameters", "BFParameters"]
@@ -637,6 +616,133 @@ def region_cross_product(cat_regions: np.ndarray, num_regions: np.ndarray) -> np
 
 def make_cube(combination):
     return BAdicCube(combination)
+
+def compute_pacha_sketch_parameters(mem_budget, levels, cat_updates, num_updates, region_updates, num_elements=None, 
+                                    eps = 0.0005, delta = 0.05, p = 0.125):
+
+    mem_cms = mem_budget * 0.25 / levels
+    n_counters = mem_cms * 1024 * 1024 / 4
+    depth = 3
+    width = n_counters // depth
+    error_eps = np.e/width
+    while error_eps < eps / region_updates and depth < 5:
+        depth += 1
+        width = n_counters // depth
+        error_eps = np.e/width
+
+    # TODO: Check if delta is correct
+    if error_eps < eps / region_updates:
+        error_eps = eps / region_updates
+        cms_params = CMParameters(delta=delta, error_eps=error_eps)
+    else:
+        cms_params = CMParameters(width=int(width), depth=int(depth))
+    
+    w, d = cms_params.peek_size()
+    print(f"Memory for CMSs: {mem_cms} MB")
+    print(f"CMS Parameters: w={w}, d={d}, eps={np.e/w*region_updates:.4f}, delta={1/(np.e**d):.4f}")
+    mem_cms = cms_params.peek_memory() * levels
+    mem_index = mem_budget - mem_cms
+
+    if cat_updates == 0:
+        
+        ratio_num_index = num_updates / (num_updates + region_updates)
+        ratio_region_index = 1.0 - ratio_num_index
+        print("Categorical index as Bitmap")
+        mem_cat_index = 0
+        mem_num_index = mem_index * ratio_num_index
+        print(f"Memory for num index: {mem_num_index} MB")
+        mem_region_index = mem_index * ratio_region_index
+        print(f"Memory for region index: {mem_region_index} MB")
+
+        n_bits_num_index = int(np.ceil(mem_num_index * 8 * 1024 * 1024))
+        n_bits_region_index = int(np.ceil(mem_region_index * 8 * 1024 * 1024))
+
+        if num_elements is None:
+            k = - np.log(p) / np.log(2)
+            k_num_index = k
+            k_region_index = k
+
+            print(f"Target false positive rate: {p:.4f} with k={k}")
+            max_elements_num = (n_bits_num_index / k * np.log(2)) / num_updates
+            max_elements_region = (n_bits_region_index / k * np.log(2)) / region_updates
+            print(f"Max elements for num index: {max_elements_num}")
+            print(f"Max elements for region index: {max_elements_region}")
+        else:
+            k_num_index = int(np.ceil((n_bits_num_index / (num_elements*num_updates)) * math.log(2)))
+            k_region_index = int(np.ceil((n_bits_region_index / (num_elements*region_updates)) * math.log(2)))
+
+            if k_num_index > 7:
+                k_num_index = 7
+            if k_region_index > 7:
+                k_region_index = 7
+
+            p_num_index = (1-np.e**(-k_num_index*(num_elements*num_updates)/n_bits_num_index))**k_num_index
+            p_region_index = (1-np.e**(-k_region_index*(num_elements*region_updates)/n_bits_region_index))**k_region_index 
+
+            print(f"False positve rate for num index: {p_num_index:.4f} with k={k_num_index}")
+            print(f"False positve rate for region index: {p_region_index:.4f} with k={k_region_index}")
+
+        cat_params = None
+    else:
+        total_updates = (cat_updates + num_updates + region_updates)
+        ratio_cat_index = cat_updates / total_updates
+        ratio_num_index = num_updates / total_updates
+        ratio_region_index = 1.0 - ratio_cat_index - ratio_num_index
+        mem_cat_index = mem_index * ratio_cat_index
+        print(f"Memory for cat index: {mem_cat_index} MB")
+        mem_num_index = mem_index * ratio_num_index
+        print(f"Memory for num index: {mem_num_index} MB")
+        mem_region_index = mem_index * ratio_region_index
+        print(f"Memory for region index: {mem_region_index} MB")
+        n_bits_cat_index = int(np.ceil(mem_cat_index * 8 * 1024 * 1024))
+        n_bits_num_index = int(np.ceil(mem_num_index * 8 * 1024 * 1024))
+        n_bits_region_index = int(np.ceil(mem_region_index * 8 * 1024 * 1024))
+
+        if num_elements is None:
+            k = - np.log(p) / np.log(2)
+            k_cat_index = k
+            k_num_index = k
+            k_region_index = k
+
+            print(f"Target false positive rate: {p:.4f} with k={k}")
+            max_elements_cat = (n_bits_cat_index / k * np.log(2)) / cat_updates
+            max_elements_num = (n_bits_num_index / k * np.log(2)) / num_updates
+            max_elements_region = (n_bits_region_index / k * np.log(2)) / region_updates
+            print(f"Max elements for cat index: {max_elements_cat}")
+            print(f"Max elements for num index: {max_elements_num}")
+            print(f"Max elements for region index: {max_elements_region}")
+
+        else:
+            k_cat_index = int(np.ceil((n_bits_cat_index / (num_elements*cat_updates))* math.log(2)))
+            k_num_index = int(np.ceil((n_bits_num_index / (num_elements*num_updates)) * math.log(2)))
+            k_region_index = int(np.ceil((n_bits_region_index / (num_elements*region_updates)) * math.log(2)))
+
+            if k_cat_index > 7:
+                k_cat_index = 7
+            if k_num_index > 7:
+                k_num_index = 7
+            if k_region_index > 7:
+                k_region_index = 7
+
+            p_cat_index = (1-np.e**(-k_cat_index*(num_elements*cat_updates)/n_bits_cat_index))**k_cat_index
+            p_num_index = (1-np.e**(-k_num_index*(num_elements*num_updates)/n_bits_num_index))**k_num_index
+            p_region_index = (1-np.e**(-k_region_index*(num_elements*region_updates)/n_bits_region_index))**k_region_index
+
+            print(f"False positve rate for cat index: {p_cat_index:.4f} with k={k_cat_index}")
+            print(f"False positve rate for num index: {p_num_index:.4f} with k={k_num_index}")
+            print(f"False positve rate for region index: {p_region_index:.4f} with k={k_region_index}")
+        
+        cat_params = BFParameters(size=n_bits_cat_index, hash_count=k_cat_index)
+
+    num_params = BFParameters(size=n_bits_num_index, hash_count=k_num_index)
+    region_params = BFParameters(size=n_bits_region_index, hash_count=k_region_index)
+
+    return {
+        "cms_params": cms_params,
+        "cat_params": cat_params,
+        "num_params": num_params,
+        "region_params": region_params
+    }
 
 def lattice_expand(cubes: np.ndarray, fill='*') -> np.ndarray:
     """
