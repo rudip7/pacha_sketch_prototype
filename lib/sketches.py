@@ -211,14 +211,15 @@ class HashFunctionFamily:
             n += 1
         return n
     
-    def hash(self, x, index):
+    def hash(self, x, index=0):
         """
         Compute the hash value for an element x using the index-th hash function.
         :param x: Element to hash.
         :param index: Index of the hash function.
         :return: Hash value in the range [0, max_range).
         """
-        a, b = self.coefficients[index]
+        a = self.a_coefficients[index]
+        b = self.b_coefficients[index]
         return (a * hash(x) + b) % self.prime % self.max_range
     
     def hash_value(self, x):

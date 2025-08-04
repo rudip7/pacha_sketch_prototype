@@ -31,10 +31,10 @@ def plot_relative_error(
 
     ax.axhline(1, color='red', linestyle='-', label='ground truth')
     ax.plot(range(len(medians)), medians, color=color, marker='o', label='median')
-    ax.fill_between(range(len(medians)), q25, q75, color=color, alpha=0.2, label='Q25-Q75 Interval')
+    ax.fill_between(range(len(medians)), q25, q75, color=color, alpha=0.2, label='Q25-Q75')
     ax.set_xticks(range(len(labels)))
     ax.set_xticklabels(labels)
-    ax.set_xlabel('~ nr. rows')
+    ax.set_xlabel(x_label)
     ax.set_ylabel('relative accuracy')
     ax.set_ylim(0.0, 1.05)
     ax.legend()
@@ -56,51 +56,54 @@ def plot_boxplot(
     target=None,  
     path_to_file=None,
     show_legend=False
-):
+) -> plt.Figure:
     # Add 'approach' column if missing (assumes each df has a unique approach)
     for df in dfs:
         if 'approach' not in df.columns:
             raise ValueError("Each DataFrame must have an 'approach' column.")
 
     combined_df = pd.concat(dfs, ignore_index=True)
-    plt.figure(figsize=figsize)
-    sns.boxplot(x='approach', y=col_y, hue='approach', data=combined_df, palette=palette)
-    plt.xlabel(x_label)
-    plt.ylabel(y_label)
+    fig, ax = plt.subplots(figsize=figsize)
+
+    sns.boxplot(x='approach', y=col_y, hue='approach', data=combined_df, palette=palette, ax=ax)
+
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+
     if target is not None:
-        # Draw a red line through the given set of values (expects a sequence of y-values, one per approach)
         if isinstance(target, (list, np.ndarray, pd.Series)):
-            # Get unique approaches in the order they appear in the combined DataFrame
             approaches = combined_df['approach'].unique()
-            # If target length matches number of approaches, plot line
             if len(target) == len(approaches):
-                median_n_queries = []
-                for df in dfs:
-                    median_n_queries.append(df['query_regions'].median())
-                x = np.arange(len(approaches))
-                median_errors = np.array(median_n_queries) * np.array(target)
-                # Extend the lines horizontally to the edges of the plot
+                median_n_queries = [df['query_regions'].median() for df in dfs]
                 x_min, x_max = -0.5, len(approaches) - 0.5
-                plt.plot([x_min, x_max], [median_errors[0], median_errors[-1]], color='orange', linestyle='-', linewidth=2, label='Target (Median)')
-                plt.plot([x_min, x_max], [target[0], target[-1]], color='red', linestyle='--', linewidth=2, label='Target')
+                median_errors = np.array(median_n_queries) * np.array(target)
+                ax.plot([x_min, x_max], [median_errors[0], median_errors[-1]], color='orange', linestyle='-', linewidth=2, label='Target (Median)')
+                ax.plot([x_min, x_max], [target[0], target[-1]], color='red', linestyle='--', linewidth=2, label='Target')
             else:
                 raise ValueError("Length of target values must match number of approaches.")
         else:
             median_n_queries = dfs[-1]['query_regions'].median()
-            plt.axhline(target*median_n_queries, color='orange', linestyle='-', linewidth=2, label='Target')
-            plt.axhline(target, color='red', linestyle='--', linewidth=2, label='Target')
+            ax.axhline(target * median_n_queries, color='orange', linestyle='-', linewidth=2, label='Target')
+            ax.axhline(target, color='red', linestyle='--', linewidth=2, label='Target')
 
-    plt.grid(True, axis='y', alpha=0.5, linestyle='--')
-    plt.tight_layout()
+    ax.grid(True, axis='y', linestyle='--')
+
     if log_scale:
-        plt.yscale('log')
-    if rotation is not None:
-        plt.xticks(rotation=rotation, ha='center')
-    if not show_legend:
-        plt.gca().get_legend().remove() if plt.gca().get_legend() else None
-    if path_to_file is not None:
-        plt.savefig(path_to_file, bbox_inches='tight', pad_inches=0.05) 
-    plt.show()
+        ax.set_yscale('log')
+
+    if rotation:
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=rotation, ha='center')
+
+    if not show_legend and ax.get_legend():
+        ax.get_legend().remove()
+
+    plt.tight_layout()
+
+    if path_to_file:
+        fig.savefig(path_to_file, bbox_inches='tight', pad_inches=0.05)
+
+    return fig
+
     
 
 def visualize_badic_cover(b_adic_ranges, show_labels=False):

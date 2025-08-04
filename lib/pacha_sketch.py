@@ -857,6 +857,8 @@ class PachaSketch:
                 expanded_cubes = lattice_expand_k012(cubes)
         else:
             expanded_cubes = self.materialized.lattice_expand(cubes)
+        # expanded_cubes = cubes
+
         all_levels = np.repeat(all_levels, expanded_cubes.shape[0] // all_levels.shape[0])
         mappings = np.column_stack([all_levels, expanded_cubes])
         # Add all wildcards option
