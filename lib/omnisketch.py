@@ -29,7 +29,7 @@ class Kmin:
         self.rng = random.Random()
         self.sketch: SortedSet = SortedSet([])  
         self.cur_tree_root = float('inf')
-        self.b = int(math.ceil(math.log(4*max_sample_size / delta)))
+        self.b = int(math.ceil(math.log(4*max_sample_size**2.5 / delta)))
         self.max_hash = min(2 ** self.b, 2**31 - 1)
 
     def __copy__(self) -> Kmin:
@@ -251,7 +251,7 @@ def compute_max_B(mem_budget, w, d, n_cat, n_num, dyadic_levels, delta):
             left = B + 1
         else:
             right = B - 1
-    print(f"Maximum B found: {max_B}, bits: {ceil_log}, rhs: {rhs}, Difference: {mem_budget - rhs}")
+    # print(f"Maximum B found: {max_B}, bits: {ceil_log}, rhs: {rhs}, Difference: {mem_budget - rhs}")
     return max_B
 
 class OmniSketch:
@@ -259,14 +259,14 @@ class OmniSketch:
     cmsketches: List[CountMin]
     cmsketches_range: List[List[CountMinDyad]]
 
-    def __init__(self, num_attributes, cat_col_map, num_col_map,
+    def __init__(self, cat_col_map, num_col_map,
                  delta=0.1, eps = 0.1, max_sample_size=10_000, 
                  dyadic_range_bits=16):
         
         self.depth = math.ceil(math.log(2/delta))
         self.width = 1+math.ceil(math.e * ((eps+1)/eps)**(1/self.depth))
         self.max_sample_size = max_sample_size
-        self.num_attributes = num_attributes
+        self.num_attributes = len(cat_col_map) + len(num_col_map)
         self.dyadic_range_bits = dyadic_range_bits
 
         self.cat_col_map = cat_col_map
@@ -277,14 +277,14 @@ class OmniSketch:
 
         self.cmsketches = [None] * len(cat_col_map)
         for i in range(len(cat_col_map)):
-            self.cmsketches[i] = CountMin(attr=i, width=width, depth=depth, delta_ds=delta/2, 
+            self.cmsketches[i] = CountMin(attr=i, width=self.width, depth=self.depth, delta_ds=delta/2, 
                                           max_sample_size=max_sample_size)
 
         self.cmsketches_range = [[None for _ in range(self.dyadic_range_bits + 1)] for _ in range(len(num_col_map))]
         for i in range(len(num_col_map)):
             for j in range(self.dyadic_range_bits, -1, -1):
                 self.cmsketches_range[i][self.dyadic_range_bits - j] = CountMinDyad(attr=i, interval_size=j, 
-                                                                                  width=width, depth=depth,
+                                                                                  width=self.width, depth=self.depth,
                                                                                   delta_ds=delta/2,
                                                                                   max_sample_size=max_sample_size, 
                                                                                   dyadic_range_bits=dyadic_range_bits)
@@ -354,7 +354,7 @@ class OmniSketch:
         return [coeff, lower_bound, upper_bound]
     
 
-    def query(self, query: List[Any]):
+    def query(self, query: List[Any], details=False) -> int | tuple[int, bool]:
         cat_predicates = [query[i] for i in self.cat_col_map]
         num_predicates = [query[i] for i in self.num_col_map]
 
@@ -380,7 +380,7 @@ class OmniSketch:
         for i in range(len(num_predicates)):
             if num_predicates[i] == '*':
                 continue
-            num_predicates += 1
+            n_predicates += 1
             attr = self.num_col_map[i]
             lower = num_predicates[i][0]
             upper = num_predicates[i][1]
@@ -405,12 +405,17 @@ class OmniSketch:
         s_cap = sorted_intersection(samples)
 
         constraint = 3 * math.log((4 * num_predicates * self.depth * math.sqrt(b_virtual)) / self.delta) / (self.eps * self.eps)
-        case2_estimate = math.ceil(s_cap * n_max / b_virtual)
+        estimate = math.ceil(s_cap * n_max / b_virtual)
 
         if s_cap < constraint:
-            return int(math.ceil(2 * n_max * math.log((4 * num_predicates * self.depth * math.sqrt(b_virtual)) / self.delta) / (b_virtual * self.eps * self.eps)))
+            estimate = int(math.ceil(2 * n_max * math.log((4 * num_predicates * self.depth * math.sqrt(b_virtual)) / self.delta) / (b_virtual * self.eps * self.eps)))
+            if details:
+                return estimate, False
+            return estimate
         else:
-            return int(math.ceil(s_cap * n_max / b_virtual))
+            if details:
+                return estimate, True
+            return estimate
         
 
     def point_query(self, query: List[Any]):
@@ -500,6 +505,21 @@ class OmniSketch:
             i[0] -= 1
             i[1] -= 1
         return temp
+    
+    def peek_parameters(self):
+        print(f"OmniSketch parameters: \n"
+                f"delta={self.delta}, eps={self.eps}\n"
+                f"depth={self.depth}, width={self.width}\n"
+                f"max_sample_size={self.max_sample_size}, bits={self.kmin_tmp.b}")
+        
+        print("----------------------------------------------------")
+
+        factor = self.width * self.depth * (len(self.cat_col_map) + len(self.num_col_map) * self.dyadic_range_bits)
+        ceil_log = math.ceil(math.log(4 * (self.max_sample_size ** 2.5) / self.delta))
+        total_size = factor * (32 + self.max_sample_size * ceil_log + 3 * 32 + 1)
+        total_size /= 8 * 1024 * 1024  # Convert bits to MB
+        print(f"Total Size: {total_size} MB")
+        
 
     # They call index, what we call level
     @staticmethod
@@ -548,7 +568,10 @@ class OmniSketch:
                     self.cmsketches[i].reset()
 
     @staticmethod
-    def build_from_error_guarantees(mem_budget: float, cat_col_map: List[int], num_col_map: List[int], delta:float, eps:float, dyadic_range_bits=16, max_level=25):
+    def build_with_memory_budget(mem_budget: float, cat_col_map: List[int], num_col_map: List[int], 
+                                 delta:float, eps:float, dyadic_range_bits=16) -> OmniSketch:
+        
+        mem_budget = mem_budget * 1024 * 1024 * 8  # Convert MB to bits
         d = math.ceil(math.log(2/delta))
         w = 1+math.ceil(math.e * ((eps+1)/eps)**(1/d)) 
 
@@ -557,7 +580,7 @@ class OmniSketch:
 
         max_sample_size = compute_max_B(mem_budget, w, d, n_cat, n_num, dyadic_range_bits, delta)
 
-        return OmniSketch(num_attributes=n_cat + n_num, cat_col_map=cat_col_map, num_col_map=num_col_map,
+        return OmniSketch(cat_col_map=cat_col_map, num_col_map=num_col_map,
                             delta=delta, eps=eps, max_sample_size=max_sample_size, 
                             dyadic_range_bits=dyadic_range_bits)
 

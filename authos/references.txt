@@ -1,0 +1,357 @@
+[1] Ziawasch Abedjan, Lukasz Golab, Felix Naumann. 2015. Profiling relational
+data: a survey. The VLDB Journal 24, 4 (2015), 557–581.
+[2] Pankaj K Agarwal, Graham Cormode, Zengfeng Huang, Jeff M Phillips, Zhewei
+Wei, Ke Yi. 2013. Mergeable summaries. ACM Transactions on Database
+Systems (TODS) 38, 4 (2013), 26.
+[3] Sameer Agarwal, Barzan Mozafari, Aurojit Panda, Henry Milner, Samuel Madden,
+and Ion Stoica. 2013. BlinkDB: queries with bounded errors, bounded response
+times on very large data. In Proceedings of the 8th ACM European Conference on
+Computer Systems. ACM, 29–42.
+[4] Charu C Aggarwal. 2006. On biased reservoir sampling in the presence of stream
+evolution. In Proceedings of the 32nd international conference on Very large data
+bases. VLDB Endowment, 607–618.
+[5] Divy Agrawal, Sanjay Chawla, Bertty Contreras-Rojas, Ahmed K. Elmagarmid,
+Yasser Idris, Zoi Kaoudi, Sebastian Kruse, Ji Lucas, Essam Mansour, Mourad
+Ouzzani, Paolo Papotti, Jorge-Arnulfo Quiané-Ruiz, Nan Tang, Saravanan Thirumuruganathan, Anis Troudi. 2018. RHEEM: Enabling Cross-Platform Data
+Processing - May The Big Data Be With You! PVLDB 11, 11 (2018), 1414–1427.
+[6] Tyler Akidau, Robert Bradshaw, Craig Chambers, Slava Chernyak, Rafael J
+Fernández-Moctezuma, Reuven Lax, Sam McVeety, Daniel Mills, Frances Perry,
+Eric Schmidt, et al. 2015. The dataflow model: a practical approach to balancing
+correctness, latency, cost in massive-scale, unbounded, out-of-order data
+processing. (2015).
+[7] Apache Software Foundation. 2020. Apache Hive. https://hive.apache.org/
+[8] Apache Software Foundation. 2020. Apache Pig. https://pig.apache.org/
+[9] Brian Babcock, Shivnath Babu, Mayur Datar, Rajeev Motwani, Jennifer
+Widom. 2002. Models, issues in data stream systems. In Proceedings of the
+twenty-first ACM SIGMOD-SIGACT-SIGART symposium on Principles of database
+systems. ACM, 1–16.
+[10] Burton H Bloom. 1970. Space/time trade-offs in hash coding with allowable
+errors. Commun. ACM 13, 7 (1970), 422–426.
+[11] Andrei Broder, Michael Mitzenmacher, Andrei Broder I Michael Mitzenmacher. 2002. Network applications of bloom filters: A survey. In Internet mathematics. Citeseer.
+[12] Paris Carbone, Asterios Katsifodimos, Stephan Ewen, Volker Markl, Seif Haridi,
+and Kostas Tzoumas. 2015. Apache flink: Stream, batch processing in a
+single engine. Bulletin of the IEEE Computer Society Technical Committee on Data
+Engineering 36, 4 (2015).
+[13] Paris Carbone, Jonas Traub, Asterios Katsifodimos, Seif Haridi, Volker Markl.
+2016. Cutty: Aggregate sharing for user-defined windows. In Proceedings of the
+25th ACM International on Conference on Information, Knowledge Management.
+1201–1210.
+[14] Sanket Chintapalli, Derek Dagit, Bobby Evans, Reza Farivar, Thomas Graves,
+Mark Holderbaugh, Zhuo Liu, Kyle Nusbaum, Kishorkumar Patil, Boyang Jerry
+Peng, et al. 2016. Benchmarking streaming computation engines: Storm, flink
+and spark streaming. In 2016 IEEE international parallel, distributed processing
+symposium workshops (IPDPSW). IEEE, 1789–1792.
+[15] Tyson Condie, Neil Conway, Peter Alvaro, Joseph M Hellerstein, Khaled Elmeleegy, Russell Sears. 2010. MapReduce online.. In Nsdi, Vol. 10. 20.
+[16] Graham Cormode, Antonios Deligiannakis, Minos Garofalakis, Andrew
+McGregor. 2009. Probabilistic histograms for probabilistic data. Proceedings of
+the VLDB Endowment 2, 1 (2009), 526–537.
+[17] Graham Cormode, Minos Garofalakis. 2005. Sketching streams through the
+net: Distributed approximate query tracking. In Proceedings of the 31st international conference on Very large data bases. VLDB Endowment, 13–24.
+[18] Graham Cormode, Minos Garofalakis, Peter J Haas, Chris Jermaine. 2012.
+Synopses for massive data: Samples, histograms, wavelets, sketches. Foundations
+and Trends in Databases 4, 1–3 (2012), 1–294.
+[19] Graham Cormode, Marios Hadjieleftheriou. 2008. Finding frequent items in
+data streams. Proceedings of the VLDB Endowment 1, 2 (2008), 1530–1541.
+[20] Graham Cormode, Shan Muthukrishnan. 2005. An improved data stream
+summary: the count-min sketch, its applications. Journal of Algorithms 55, 1
+(2005), 58–75.
+[21] Bin Fan, Dave G Andersen, Michael Kaminsky, Michael D Mitzenmacher.
+2014. Cuckoo filter: Practically better than bloom. In Proceedings of the 10th ACM
+International on Conference on emerging Networking Experiments, Technologies.
+ACM, 75–88.
+[22] Philippe Flajolet, Éric Fusy, Olivier Gandouet, Frédéric Meunier. 2007. Hyperloglog: the analysis of a near-optimal cardinality estimation algorithm. InDiscrete Mathematics, Theoretical Computer Science. Discrete Mathematics
+and Theoretical Computer Science, 137–156.
+[23] Apache Flink. 2020. The Broadcast State Pattern. https://ci.apache.org/projects/
+flink/flink-docs-stable/dev/stream/state/broadcast_state.html
+[24] Apache Flink. 2020. Physical Partitioning. https://ci.apache.org/projects/flink/
+flink-docs-stable/dev/stream/operators/#physical-partitioning
+[25] Minos N Garofalakis, Phillip B Gibbons. 2001. Approximate Query Processing:
+Taming the TeraBytes.. In VLDB. 343–352.
+[26] Phillip B Gibbons, Yossi Matias, Viswanath Poosala. 1997. Aqua project white
+paper. Technical Report. Technical report, Bell Laboratories, Murray Hill, New
+Jersey.
+[27] Phillip B Gibbons, Yossi Matias, Viswanath Poosala. 2002. Fast incremental
+maintenance of approximate histograms. ACM Transactions on Database Systems
+(TODS) 27, 3 (2002), 261–298.
+[28] Inigo Goiri, Ricardo Bianchini, Santosh Nagarakatte, Thu D Nguyen. 2015.
+Approxhadoop: Bringing approximations to mapreduce frameworks. In Proceedings of the Twentieth International Conference on Architectural Support for
+Programming Languages, Operating Systems. 383–397.
+[29] Alfred Haar. 1909. Zur theorie der orthogonalen funktionensysteme. Georg-AugustUniversitat, Gottingen.
+[30] Paulo Jesus, Carlos Baquero, Paulo Sérgio Almeida. 2014. A survey of distributed data aggregation algorithms. IEEE Communications Surveys & Tutorials17, 1 (2014), 381–404.
+[31] Srikanth Kandula, Anil Shanbhag, Aleksandar Vitorovic, Matthaios Olma, Robert
+Grandl, Surajit Chaudhuri, Bolin Ding. 2016. Quickr: Lazily approximating
+complex adhoc queries in bigdata clusters. In Proceedings of the 2016 international
+conference on management of data. 631–646.
+[32] Panagiotis Karras, Nikos Mamoulis. 2005. One-pass wavelet synopses for
+maximum-error metrics. In Proceedings of the 31st international conference on
+Very large data bases. VLDB Endowment, 421–432.
+[33] Martin Kiefer, Ilias Poulakis, Sebastian Breß, Volker Markl. 2020. Scotch:
+Generating FPGA-Accelerators for Sketching at Line Rate. Proceedings of the
+VLDB Endowment 14, 3 (2020), 281–293.
+[34] Taiwo Kolajo, Olawande Daramola, Ayodele Adebiyi. 2019. Big data stream
+analysis: a systematic literature review. Journal of Big Data 6, 1 (2019), 47.
+[35] Sailesh Krishnamurthy, Chung Wu, Michael Franklin. 2006. On-the-fly
+sharing for streamed aggregation. In Proceedings of the 2006 ACM SIGMOD international conference on Management of data. 623–634.
+[36] Jin Li, David Maier, Kristin Tufte, Vassilis Papadimos, Peter A Tucker. 2005.
+No pane, no gain: efficient evaluation of sliding-window aggregates over data
+streams. Acm Sigmod Record 34, 1 (2005), 39–44.
+[37] Jin Li, David Maier, Kristin Tufte, Vassilis Papadimos, Peter A Tucker. 2005.
+Semantics, evaluation techniques for window aggregates in data streams. InProceedings of the 2005 ACM SIGMOD international conference on Management of
+data. 311–322.
+[38] Jin Li, David Maier, Kristin Tufte, Vassilis Papadimos, Peter A Tucker. 2005.
+Semantics, evaluation techniques for window aggregates in data streams. InProceedings of the 2005 ACM SIGMOD international conference on Management of
+data. 311–322.
+[39] Kaiyu Li, Guoliang Li. 2018. Approximate query processing: What is new
+and where to go? Data Science, Engineering 3, 4 (2018), 379–397.
+[40] Charles Masson, Jee E Rim, Homin K Lee. 2019. DDSketch: a fast, fullymergeable quantile sketch with relative-error guarantees. Proceedings of the
+VLDB Endowment 12, 12 (2019), 2195–2205.
+[41] Frank McSherry, Michael Isard, Derek G Murray. 2015. Scalability! But atwhat 𝐶𝑂𝑆𝑇 ?. In 15th Workshop on Hot Topics in Operating Systems (HotOS 𝑋𝑉 ).
+[42] Barzan Mozafari, Jags Ramnarayan, Sudhir Menon, Yogesh Mahajan, Soubhik
+Chakraborty, Hemant Bhanawat, Kishor Bachhav. 2017. SnappyData: A
+Unified Cluster for Streaming, Transactions, Interactice Analytics.. In CIDR.
+[43] Shanmugavelayutham Muthukrishnan. 2005. Data streams: Algorithms, applications. Now Publishers Inc.
+[44] Gregory Piatetsky-Shapiro, Charles Connell. 1984. Accurate estimation of
+the number of tuples satisfying a condition. ACM Sigmod Record 14, 2 (1984),
+256–276.
+[45] Viswanath Poosala, Peter J Haas, Yannis E Ioannidis, Eugene J Shekita. 1996.
+Improved histograms for selectivity estimation of range predicates. ACM Sigmod
+Record 25, 2 (1996), 294–305.
+[46] Do Le Quoc, Ruichuan Chen, Pramod Bhatotia, Christof Fetzer, Volker Hilt,
+and Thorsten Strufe. 2017. StreamApprox: approximate computing for stream
+analytics. In Proceedings of the 18th ACM/IFIP/USENIX Middleware Conference.
+ACM, 185–197.
+[47] Madhavapeddi Shreedhar, George Varghese. 1995. Efficient fair queueing
+using deficit round robin. In Proceedings of the conference on Applications, technologies, architectures, protocols for computer communication. 231–242.
+[48] Apache Spark. 2020. Scheduling Within an Application. https://spark.apache.org/
+docs/latest/job-scheduling.html#scheduling-within-an-application
+[49] Nesime Tatbul, Uğur Çetintemel, Stan Zdonik, Mitch Cherniack, Michael
+Stonebraker. 2003. Load shedding in a data stream manager. In Proceedings 2003
+vldb conference. Elsevier, 309–320.
+[50] NYC Taxi, Limousine Commission (TLC). 2020. New York City Taxi,
+Limousine Commission (TLC) Trip Record Data. https://www1.nyc.gov/site/tlc/
+about/tlc-trip-record-data.page
+[51] Jonas Traub, Philipp Marian Grulich, Alejandro Rodriguez Cuellar, Sebastian
+Breß, Asterios Katsifodimos, Tilmann Rabl, Volker Markl. 2018. Scotty:
+Efficient window aggregation for out-of-order stream processing. In 2018 IEEE
+34th International Conference on Data Engineering (ICDE). IEEE, 1300–1303.
+[52] Jonas Traub, Philipp M. Grulich, Alejandro Rodríguez Cuéllar, Sebastian Breß,
+Asterios Katsifodimos, Tilmann Rabl, Volker Markl. 2019. Efficient Window
+Aggregation with General Stream Slicing. In 22th International Conference on
+Extending Database Technology (EDBT).
+[53] Jonas Traub, Philipp M. Grulich, Alejandro Rodríguez Cuéllar, Sebastian Breß,
+Asterios Katsifodimos, Tilmann Rabl, Volker Markl. 2020. Scotty Window
+Processor. https://doi.org/TU-Berlin-DIMA/scotty-window-processor
+[54] Jonas Traub, Zoi Kaoudi, Jorge-Arnulfo Quiané-Ruiz, Volker Markl. 2020.
+Agora: Bringing Together Datasets, Algorithms, Models, More in a Unified
+Ecosystem [Vision]. SIGMOD Record 49, 4 (2020), 6–11.
+[55] Jonas Traub, Nikolaas Steenbergen, Philipp M Grulich, Tilmann Rabl, Volker
+Markl. 2017. I2: Interactive Real-Time Visualization for Streaming Data. In EDBT.
+526–529.
+[56] Jan E Trost. 1986. Statistically nonrepresentative stratified sampling: A sampling
+technique for qualitative studies. Qualitative sociology 9, 1 (1986), 54–57.
+[57] Jeffrey S Vitter. 1985. Random sampling with a reservoir. ACM Transactions on
+Mathematical Software (TOMS) 11, 1 (1985), 37–57.
+[58] Yahoo! 2020. DataSketches: Sketches Library from Yahoo! https://datasketches.
+github.io/
+[59] Matei Zaharia, Reynold S Xin, Patrick Wendell, Tathagata Das, Michael Armbrust,
+Ankur Dave, Xiangrui Meng, Josh Rosen, Shivaram Venkataraman, Michael J
+Franklin, et al. 2016. Apache spark: a unified engine for big data processing.Commun. ACM 59, 11 (2016), 56–65.
+[1] 2018. California Consumer Privacy Act (CCPA). https://www.caprivacy.org/
+[2] 2018. General Data Protection Regulation (GDPR). https://gdpr-info.eu/
+[3] 2018. General Data Protection Regulation (GDPR): Recital 26. https://gdpr-info.eu/recitals/no-26/
+[4] Foto N Afrati. 2011. Determinacy, query rewriting for conjunctive queries, views. Theoretical Computer Science412, 11 (2011), 1005–1021.
+[5] Rakesh Agrawal, Roberto Bayardo, Christos Faloutsos, Jerry Kiernan, Ralf Rantzau, Ramakrishnan Srikant. 2004.
+Auditing compliance with a Hippocratic database. In Proceedings of the Thirtieth International Conference on Very Large
+Data Bases - Volume 30 (Toronto, Canada) (VLDB ’04). VLDB Endowment, 516–527.
+[6] Rakesh Agrawal, Jerry Kiernan, Ramakrishnan Srikant, Yirong Xu. 2002. Hippocratic databases. In Proceedings
+of the 28th International Conference on Very Large Data Bases (Hong Kong, China) (VLDB ’02). VLDB Endowment,
+143–154.
+[7] Amazon Redshift. 2024. Amazon Redshift: Dynamic data masking. Retrieved April 5, 2024 from https://docs.aws.
+amazon.com/redshift/latest/dg/t_ddm.html
+[8] Kaustubh Beedkar, David Brekardin, Jorge-Anulfo Quiané-Ruiz, Volker Markl. 2021. Compliant geo-distributed
+data processing in action. Proc. VLDB Endow. 14, 12 (July 2021), 2843–2846. https://doi.org/10.14778/3476311.3476359
+[9] Kaustubh Beedkar, Jorge-Arnulfo Quiané-Ruiz, Volker Markl. 2022. Navigating Compliance with Data Transfers
+in Federated Data Processing. IEEE Data Eng. Bull. 45, 1 (2022), 50–61.
+[10] Kaustubh Beedkar, Jorge-Arnulfo Quiané-Ruiz, Volker Markl. 2021. Compliant Geo-distributed Query Processing.
+In Proceedings of the 2021 International Conference on Management of Data (Virtual Event, China) (SIGMOD ’21).
+Association for Computing Machinery, New York, NY, USA, 181–193. https://doi.org/10.1145/3448016.3453687
+[11] Edmon Begoli, Jesús Camacho-Rodríguez, Julian Hyde, Michael J. Mior, Daniel Lemire. 2018. Apache Calcite: A
+Foundational Framework for Optimized Query Processing Over Heterogeneous Data Sources. In Proceedings of the
+2018 International Conference on Management of Data (Houston, TX, USA) (SIGMOD ’18). Association for Computing
+Machinery, New York, NY, USA, 221–230. https://doi.org/10.1145/3183713.3190662
+[12] Ji-Won Byun, Ninghui Li. 2008. Purpose based access control for privacy protection in relational database systems.The VLDB Journal 17, 4 (July 2008), 603–619. https://doi.org/10.1007/s00778-006-0023-0
+[13] Walter Cai, Magdalena Balazinska, Dan Suciu. 2019. Pessimistic Cardinality Estimation: Tighter Upper Bounds for
+Intermediate Join Cardinalities. In Proceedings of the 2019 International Conference on Management of Data (Amsterdam,
+Netherlands) (SIGMOD ’19). Association for Computing Machinery, New York, NY, USA, 18–35. https://doi.org/10.
+1145/3299869.3319894
+[14] Rose Clancy, Dominic O’Sullivan, Ken Bruton. 2021. Data-driven quality improvement approach to reducing
+waste in manufacturing. The TQM Journal 35, 1 (2021), 51–72. https://doi.org/10.1108/TQM-02-2021-0061
+[15] Pietro Colombo, Elena Ferrari. 2015. Privacy Aware Access Control for Big Data: A Research Roadmap. Big Data
+Research 2, 4 (2015), 145–154. https://doi.org/10.1016/j.bdr.2015.08.001
+[16] Dorothy E. Denning, Selim G. Akl, Matthew Morgenstern, Peter G Neumann, Roger R. Schell, Mark Heckman.
+1986. Views for Multilevel Database Security. (1986), 156–156. https://doi.org/10.1109/SP.1986.10012
+[17] Amol Deshpande. 2021. Sypse: Privacy-first Data Management through Pseudonymization, Partitioning. In 11th
+Conference on Innovative Data Systems Research, CIDR 2021, Virtual Event, January 11-15, 2021, Online Proceedings.
+www.cidrdb.org. http://cidrdb.org/cidr2021/papers/cidr2021_paper24.pdf
+[18] Frances Ding, Moritz Hardt, John Miller, Ludwig Schmidt. 2021. Retiring Adult: New Datasets for Fair Machine
+Learning. (2021), 6478–6490. https://proceedings.neurips.cc/paper/2021/hash/32e54441e6382a7fbacbbbaf3c450059Abstract.html
+[19] Cynthia Dwork. 2006. Differential Privacy. In Automata, Languages, Programming, 33rd International Colloquium,
+ICALP 2006, Venice, Italy, July 10-14, 2006, Proceedings, Part II (Lecture Notes in Computer Science, Vol. 4052), Michele
+Bugliesi, Bart Preneel, Vladimiro Sassone, Ingo Wegener (Eds.). Springer, 1–12. https://doi.org/10.1007/11787006_1
+[20] Mohamed Y Eltabakh, Jalaja Padma, Yasin N Silva, Pei He, Walid G Aref, Elisa Bertino. 2012. Query processing
+with K-anonymity. International Journal of Data Engineering (IJDE) 3, 2 (2012), 48–65.
+[21] David F. Ferraiolo, Ravi S. Sandhu, Serban I. Gavrila, D. Richard Kuhn, Ramaswamy Chandramouli. 2001. Proposed
+NIST standard for role-based access control. ACM Trans. Inf. Syst. Secur. 4, 3 (2001), 224–274. https://doi.org/10.1145/
+501978.501980
+[22] Oluwaseyi Feyisetan, Borja Balle, Thomas Drake, Tom Diethe. 2020. Privacy-, Utility-Preserving Textual
+Analysis via Calibrated Multivariate Perturbations. In Proceedings of the 13th International Conference on Web Search
+and Data Mining (Houston, TX, USA) (WSDM ’20). Association for Computing Machinery, New York, NY, USA, 178–186.
+https://doi.org/10.1145/3336191.3371856
+[23] Federal Institute for Drugs, Medical Devices (BfArM). 2023. International Statistical Classification of Diseases -
+German Modification (ICD-10-GM). https://www.bfarm.de/EN/Code-systems/Classifications/ICD/ICD-10-GM/_node.
+[24] Tomasz Gogacz, Jerzy Marcinkowski. 2015. The Hunt for a Red Spider: Conjunctive Query Determinacy Is
+Undecidable. In Proceedings of the 2015 30th Annual ACM/IEEE Symposium on Logic in Computer Science (LICS) (LICS
+’15). IEEE Computer Society, USA, 281–292. https://doi.org/10.1109/LICS.2015.35
+[25] Tomasz Gogacz, Jerzy Marcinkowski. 2016. Red Spider Meets a Rainworm: Conjunctive Query Finite Determinacy
+Is Undecidable. In Proceedings of the 35th ACM SIGMOD-SIGACT-SIGAI Symposium on Principles of Database Systems(San Francisco, California, USA) (PODS ’16). Association for Computing Machinery, New York, NY, USA, 121–134.
+https://doi.org/10.1145/2902251.2902288
+[26] Alon Y. Halevy. 2000. Theory of answering queries using views. SIGMOD Rec. 29, 4 (Dec. 2000), 40–47. https:
+//doi.org/10.1145/369275.369284
+[27] Alon Y. Halevy. 2001. Answering queries using views: A survey. The VLDB Journal 10, 4 (Dec. 2001), 270–294.
+https://doi.org/10.1007/s007780100054
+[28] Yuxing Han, Ziniu Wu, Peizhi Wu, Rong Zhu, Jingyi Yang, Liang Wei Tan, Kai Zeng, Gao Cong, Yanzhao Qin,
+Andreas Pfadler, Zhengping Qian, Jingren Zhou, Jiangneng Li, Bin Cui. 2021. Cardinality estimation in DBMS:
+a comprehensive benchmark evaluation. Proc. VLDB Endow. 15, 4 (Dec. 2021), 752–765. https://doi.org/10.14778/
+3503585.3503586
+[29] Michael Hay, Liudmila Elagina, Gerome Miklau. 2017. Differentially Private Rank Aggregation. In Proceedings of
+the 2017 SIAM International Conference on Data Mining, Houston, Texas, USA, April 27-29, 2017, Nitesh V. Chawla,
+Wei Wang (Eds.). SIAM, 669–677. https://doi.org/10.1137/1.9781611974973.75
+[30] Michael Hill, Dan Swinhoe. 2021. The 15 biggest data breaches of the 21st century. https://www.csoonline.com/
+article/2130877/the-biggest-data-breaches-of-the-21st-century.html
+[31] IBM Corporation. 2024. DB2 Version 12.1: User Guide. Retrieved April 5, 2024 from https://www.ibm.com/docs/en/db2
+[32] JMH 2023. Java Microbenchmark Harness (JMH). Retrieved April 5, 2024 from https://github.com/openjdk/jmh
+[33] George Konstantinidis, Jet Holt, Adriane Chapman. 2021. Enabling personal consent in databases. Proc. VLDB
+Endow. 15, 2 (Oct. 2021), 375–387. https://doi.org/10.14778/3489496.3489516
+[34] Ios Kotsogiannis, Yuchao Tao, Xi He, Maryam Fanaeepour, Ashwin Machanavajjhala, Michael Hay, Gerome
+Miklau. 2019. PrivateSQL: A Differentially Private SQL Query Engine. 12 (2019), 1371–1384. Issue 11. https:
+//doi.org/10.14778/3342263.3342274
+[35] Solomon Kullback, Richard A Leibler. 1951. On information, sufficiency. The annals of mathematical statistics22, 1 (1951), 79–86.
+[36] Dalibo Labs. [n. d.]. Anonymization Data Masking for PostgreSQL. https://postgresql-anonymizer.readthedocs.io/en/
+stable/
+[37] Viktor Leis, Bernhard Radke, Andrey Gubichev, Alfons Kemper, Thomas Neumann. 2017. Cardinality Estimation
+Done Right: Index-Based Join Sampling. In 8th Biennial Conference on Innovative Data Systems Research, CIDR 2017,
+Chaminade, CA, USA, January 8-11, 2017, Online Proceedings. www.cidrdb.org. http://cidrdb.org/cidr2017/papers/p9leis-cidr17.pdf
+[38] Chao Li, Michael Hay, Vibhor Rastogi, Gerome Miklau, Andrew McGregor. 2010. Optimizing linear counting
+queries under differential privacy. In Proceedings of the Twenty-Ninth ACM SIGMOD-SIGACT-SIGART Symposium on
+Principles of Database Systems (Indianapolis, Indiana, USA) (PODS ’10). Association for Computing Machinery, New
+York, NY, USA, 123–134. https://doi.org/10.1145/1807085.1807104
+[39] Han Li, Hicham Johra, Flavia de Andrade Pereira, Tianzhen Hong, Jérôme Le Dréau, Anthony Maturo, Mingjun Wei,
+Yapan Liu, Ali Saberi-Derakhtenjani, Zoltan Nagy, Anna Marszal-Pomianowska, Donal Finn, Shohei Miyata, Kathryn
+Kaspar, Kingsley Nweye, Zheng O’Neill, Fabiano Pallonetto, Bing Dong. 2023. Data-driven key performance
+indicators, datasets for building energy flexibility: A review, perspectives. Applied Energy 343 (2023), 121217.
+https://doi.org/10.1016/j.apenergy.2023.121217
+[40] Frank McSherry, Kunal Talwar. 2007. Mechanism Design via Differential Privacy. In 48th Annual IEEE Symposium
+on Foundations of Computer Science (FOCS’07). 94–103. https://doi.org/10.1109/FOCS.2007.66
+[41] Microsoft. [n. d.]. Dynamic Data Masking. https://learn.microsoft.com/en-us/azure/azure-sql/database/dynamic-datamasking-overview?view=azuresql
+[42] Amihai Motro. 1989. An Access Authorization Model for Relational Databases Based on Algebraic Manipulation of
+View Definitions. In Proceedings of the Fifth International Conference on Data Engineering. IEEE Computer Society,
+USA, 339–347.
+[43] Alan Nash, Luc Segoufin, Victor Vianu. 2010. Views, queries: Determinacy, rewriting. ACM Trans. Database
+Syst. 35, 3, Article 21 (July 2010), 41 pages. https://doi.org/10.1145/1806907.1806913
+[44] Parimarjan Negi, Ziniu Wu, Andreas Kipf, Nesime Tatbul, Ryan Marcus, Sam Madden, Tim Kraska, Mohammad
+Alizadeh. 2023. Robust Query Driven Cardinality Estimation under Changing Workloads. Proc. VLDB Endow. 16, 6
+(Feb. 2023), 1520–1533. https://doi.org/10.14778/3583140.3583164
+[45] Oracle. [n. d.]. Oracle Data Masking, Subsetting. https://www.oracle.com/security/database-security/data-masking/
+[46] Nisha Panwar, Shantanu Sharma, Guoxi Wang, Sharad Mehrotra, Nalini Venkatasubramanian, Mamadou H. Diallo,
+and Ardalan Amiri Sani. 2021. IoT Notary: Attestable Sensor Data Capture in IoT Environments. ACM Trans. Internet
+Things 3, 1, Article 3 (Oct. 2021), 30 pages. https://doi.org/10.1145/3478290
+[47] Primal Pappachan, Roberto Yus, Sharad Mehrotra, Johann-Christoph Freytag. 2020. Sieve: a middleware approach
+to scalable access control for database management systems. Proc. VLDB Endow. 13, 12 (July 2020), 2424–2437.
+https://doi.org/10.14778/3407790.3407835
+[48] Primal Pappachan, Shufan Zhang, Xi He, Sharad Mehrotra. 2022. Don’t be a tattle-tale: preventing leakages
+through data dependencies on access control protected data. Proc. VLDB Endow. 15, 11 (July 2022), 2437–2449.
+https://doi.org/10.14778/3551793.3551805
+[49] Daniel Pasailă. 2011. Conjunctive queries determinacy, rewriting. In Proceedings of the 14th International Conference
+on Database Theory (Uppsala, Sweden) (ICDT ’11). Association for Computing Machinery, New York, NY, USA, 220–231.
+https://doi.org/10.1145/1938551.1938580
+[50] Roberta Pastorino, Corrado De Vito, Giuseppe Migliara, Katrin Glocker, Ilona Binenbaum, Walter Ricciardi, Stefania
+Boccia. 2019. Benefits, challenges of Big Data in healthcare: an overview of the European initiatives. European
+journal of public health 29, Supplement_3 (2019), 23–27.
+[51] PostgreSQL 2023. PL/pgSQL — SQL Procedural Language. Retrieved April 5, 2024 from https://www.postgresql.org/
+docs/current/plpgsql.html
+[52] Fabian Prasser, Johanna Eicher, Helmut Spengler, Raffael Bild, Klaus A Kuhn. 2020. Flexible data anonymization
+using ARX—Current status, challenges ahead. Software: Practice, Experience 50, 7 (2020), 1277–1304.
+[53] MEDIA Protocol. 2018. What The Facebook/Cambridge Analytica Scandal Means To The Digital Content Ecosystem. https://medium.com/@mediaprotocolsm/what-the-facebook-cambridge-analytica-scandal-means-to-the-digitalcontent-ecosystem-7ddcba19761
+[54] Shariq Rizvi, Alberto Mendelzon, S. Sudarshan, Prasan Roy. 2004. Extending query rewriting techniques for
+fine-grained access control. In Proceedings of the 2004 ACM SIGMOD International Conference on Management of
+Data (Paris, France) (SIGMOD ’04). Association for Computing Machinery, New York, NY, USA, 551–562. https:
+//doi.org/10.1145/1007568.1007631
+[55] R.S. Sandhu, P. Samarati. 1994. Access control: principle, practice. IEEE Communications Magazine 32, 9 (1994),
+40–48. https://doi.org/10.1109/35.312842
+[56] Ravi S Sandhu. 1998. Role-based access control. Vol. 46. Elsevier. 237–286 pages.
+[57] Richard Shay, Uri Blumenthal, Vijay Gadepally, Ariel Hamlin, John Darby Mitchell, Robert K. Cunningham.
+2019. Don’t Even Ask: Database Access Control through Query Control. SIGMOD Rec. 47, 3 (Feb. 2019), 17–22.
+https://doi.org/10.1145/3316416.3316420
+[58] Samiksha Shukla, Kritica Bisht, Kapil Tiwari, Shahid Bashir. 2023. Comparative study of the global data economy.
+In Data economy in the digital age. Springer, 63–86.
+[59] Daniel J Solove, Danielle Keats Citron. 2017. Risk, anxiety: A theory of data-breach harms. Tex. L. Rev. 96
+(2017), 737.
+[60] Michael Stonebraker, Lawrence A. Rowe. 1986. The design of POSTGRES. SIGMOD Rec. 15, 2 (June 1986), 340–355.
+https://doi.org/10.1145/16856.16888
+[61] Transaction Processing Performance Council. 2017. TPC Benchmark H (Decision Support) Standard Specification.
+Technical Report. Transaction Processing Performance Council. http://www.tpc.org/tpch/ Accessed: 2024-04-16.
+[62] Prasang Upadhyaya, Magdalena Balazinska, Dan Suciu. 2015. Automatic Enforcement of Data Use Policies with
+DataLawyer. In Proceedings of the 2015 ACM SIGMOD International Conference on Management of Data (Melbourne,
+Victoria, Australia) (SIGMOD ’15). Association for Computing Machinery, New York, NY, USA, 213–225. https:
+//doi.org/10.1145/2723372.2723721
+[63] Yilei Wang, Ke Yi. 2021. Secure Yannakakis: Join-Aggregate Queries over Private Data. In Proceedings of the 2021
+International Conference on Management of Data (Virtual Event, China) (SIGMOD ’21). Association for Computing
+Machinery, New York, NY, USA, 1969–1981. https://doi.org/10.1145/3448016.3452808
+[64] Yinhai Wang, Ziqiang Zeng. 2018. Data-driven solutions to transportation problems. Elsevier.
+[65] Ziniu Wu, Parimarjan Negi, Mohammad Alizadeh, Tim Kraska, Samuel Madden. 2023. FactorJoin: A New
+Cardinality Estimation Framework for Join Queries. Proc. ACM Manag. Data 1, 1, Article 41 (May 2023), 27 pages.
+https://doi.org/10.1145/3588721
+[66] Siyuan Xia, Zhiru Zhu, Chris Zhu, Jinjin Zhao, Kyle Chard, Aaron J. Elmore, Ian Foster, Michael Franklin, Sanjay
+Krishnan, Raul Castro Fernandez. 2022. Data station: delegated, trustworthy, auditable computation to enable
+data-sharing consortia with a data escrow. Proc. VLDB Endow. 15, 11 (July 2022), 3172–3185. https://doi.org/10.14778/
+3551793.3551861
+[67] Jianyu Yang, Tianhao Wang, Ninghui Li, Xiang Cheng, Sen Su. 2020. Answering multi-dimensional range queries
+under local differential privacy. Proc. VLDB Endow. 14, 3 (Nov. 2020), 378–390. https://doi.org/10.14778/3430915.3430927
+[68] Rong Zhu, Ziniu Wu, Yuxing Han, Kai Zeng, Andreas Pfadler, Zhengping Qian, Jingren Zhou, Bin Cui. 2021. FLAT:
+fast, lightweight, accurate method for cardinality estimation. Proc. VLDB Endow. 14, 9 (May 2021), 1489–1502.
+https://doi.org/10.14778/3461535.3461539
+[1] Burton H Bloom. 1970. Space/time trade-offs in hash coding with allowable
+errors. Commun. ACM 13, 7 (1970), 422–426.
+[2] Moses Charikar, Kevin Chen, Martin Farach-Colton. 2002. Finding frequent
+items in data streams. In International Colloquium on Automata, Languages,
+Programming. Springer, 693–703.
+[3] Daqing Chen. 2015. Online Retail [Dataset]. UCI Machine Learning Repository.
+https://doi.org/10.24432/C5BW33 Donated on November 5, 2015. Transactional
+data from 2010-2011 for a UK-based online retail store.
+[4] Graham Cormode, Tejas Kulkarni, Divesh Srivastava. [n.d.]. Answering
+Range Queries Under Local Differential Privacy. Proceedings of the VLDB Endow-
+ment 12, 10 ([n. d.]).
+[5] Graham Cormode, Shan Muthukrishnan. 2005. An improved data stream
+summary: the count-min sketch, its applications. Journal of Algorithms 55, 1
+(2005), 58–75.
+[6] Frances Ding, Moritz Hardt, John Miller, Ludwig Schmidt. 2021. Retiring
+Adult: New Datasets for Fair Machine Learning. (2021), 6478–6490. https:
+//proceedings.neurips.cc/paper/2021/hash/32e54441e6382a7fbacbbbaf3c450059-
+Abstract.html
+[7] David C Hoaglin, Frederick Mosteller, John W Tukey. 2000. Understanding
+robust, exploratory data analysis. John Wiley & Sons.
+[8] Takayuki Itoh, Ashnil Kumar, Karsten Klein, Jinman Kim. 2017. High-
+dimensional data visualization by interactive construction of low-dimensional
+parallel coordinate plots. Journal of Visual Languages & Computing 43 (2017),
+1–13.
+[9] Solomon Kullback, Richard A Leibler. 1951. On information, sufficiency.
+The annals of mathematical statistics 22, 1 (1951), 79–86.
+[10] Andrew Moore, Mary S Lee. 1998. Cached sufficient statistics for efficient
+machine learning with large datasets. Journal of artificial intelligence research 8
+(1998), 67–91.
+[11] Sérgio Moro, Paulo Cortez, Pedro Rita. 2012. Bank Marketing [Dataset].
+UCI Machine Learning Repository. https://doi.org/10.24432/C5K306 Donated on February 13, 2012. Data from Portuguese bank marketing campaigns (May
+2008-November 2010), 45 211 instances, 16-20 features.
+[12] Transaction Processing Performance Council. 2017. TPC Benchmark H (Deci-
+sion Support) Standard Specification. Technical Report. Transaction Processing
+Performance Council. http://www.tpc.org/tpch/ Accessed: 2024-04-16.

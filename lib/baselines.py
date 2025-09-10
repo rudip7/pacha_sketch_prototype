@@ -28,6 +28,7 @@ from itertools import product
 
 from typing import List, Tuple, Dict, Any
 from .pacha_sketch import PachaSketch
+from .omnisketch import OmniSketch
 from .encoders import BAdicCube, BAdicRange
 import os
 
@@ -199,8 +200,54 @@ def evaluate_equivalent_pacha_sketches(df: pd.DataFrame, queries: list, p_sketch
             file_name += '.csv'
         results_df.to_csv(f"{dir_path}/{file_name}", index=False)
     
-    
 
+def evaluate_queries_omni_sketch(df: pd.DataFrame, queries: list, o_sketch: OmniSketch, path_to_file: str = None):
+    n_queries = len(queries)
+    print("Computing true counts...")
+    true_counts = np.empty(n_queries, dtype=np.int32)
+    baseline_runtimes = np.zeros(n_queries, dtype=np.float64)
+    i = 0
+    for query in tqdm(queries, desc="True Count"):
+        start_time = time.time()
+        true_counts[i] = query_df(df, query)
+        baseline_runtimes[i] = time.time() - start_time
+        i += 1
+
+    print("Computing estimates...")
+    estimates = np.empty(n_queries, dtype=np.float64)
+    case_2 = np.empty(n_queries, dtype=bool)
+    runtimes = np.zeros(n_queries, dtype=np.float64)
+    for i, query in enumerate(tqdm(queries, desc="Estimates")):
+        start_time = time.time()
+        est = o_sketch.query(query)
+        runtimes[i] = time.time() - start_time
+        estimates[i] = est
+        # case_2[i] = case2
+
+    # Construct dataframe in one go
+    measurements = {
+        "baseline_runtimes": baseline_runtimes,
+        "runtimes": runtimes,
+        "true_counts": true_counts,
+        "estimates": estimates,
+        "case_2": case_2
+    }
+
+    results_df = pd.DataFrame(measurements)
+
+    # Vectorized error calculations
+    results_df["absolute_error"] = np.abs(results_df["true_counts"] - results_df["estimates"])
+    results_df["normalized_error"] = results_df["absolute_error"] / len(df)
+    results_df["relative_error"] = np.divide(
+        results_df["absolute_error"],
+        results_df["true_counts"],
+        out=np.zeros_like(results_df["absolute_error"], dtype=np.float64),
+        where=results_df["true_counts"] != 0
+    )
+
+    if path_to_file is not None:
+        results_df.to_csv(path_to_file, index=False)
+    return results_df
 
 def evaluate_queries(df: pd.DataFrame, queries: list, p_sketch: PachaSketch, path_to_file: str = None):
     n_queries = len(queries)
