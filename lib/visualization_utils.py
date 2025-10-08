@@ -15,6 +15,8 @@ import json
 import pandas as pd
 from ctypes import c_int32
 from itertools import product
+from numbers import Number
+
 
 
 def plot_relative_error(
@@ -43,6 +45,686 @@ def plot_relative_error(
     plt.show()
 
     return fig
+
+def bar_plot(
+    results : list[Number],
+    labels: list[str],
+    y_label='relative entropy', 
+    x_label="configuration", 
+    figsize: tuple[int, int] = (5, 3),
+    palette=None
+):
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.grid(True, axis='y', linestyle='--')
+
+    ax.bar(
+        range(len(labels)),
+        results,
+        color=[palette[label] for label in labels],
+        capsize=5,
+        edgecolor='black'
+    )
+
+    ax.set_xticks(range(len(labels)))
+    ax.set_xticklabels(labels)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    # ax.legend()
+
+    # handles, labels = plt.gca().get_legend_handles_labels()
+    plt.tight_layout()
+    return fig
+
+def bar_plot_no_outliers(
+    results : list,
+    labels: list[str],
+    y_label='relative entropy',
+    lower_move=0.1, 
+    figsize: tuple[int, int] = (5, 3),
+    palette=None
+):
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.grid(True, axis='y', linestyle='--')
+
+    ax.bar(
+        range(len(labels)),
+        results,
+        color=[palette[label] for label in labels],
+        capsize=5,
+        edgecolor='black'
+    )
+
+    for patch, label in zip(ax.patches, labels):
+        if label.startswith('W'):
+            patch.set_facecolor(patch.get_facecolor())  # keep color
+            patch.set_linewidth(1.0)
+            patch.set_hatch('')
+            patch.set_alpha(0.8)
+        else:  # baseline 'o-'
+            patch.set_facecolor(patch.get_facecolor())  # keep color
+            patch.set_linewidth(1.0)
+            patch.set_hatch('')
+            patch.set_alpha(0.4)
+
+    # --- Determine dataset groups ---
+    tick_positions = np.arange(len(labels))
+    split_labels = [lbl.split('-', 1)[-1] if '-' in lbl else lbl for lbl in labels]
+    datasets = []
+    for s in split_labels:
+        if not datasets or s != datasets[-1]:
+            datasets.append(s)
+
+    n_methods = int(len(labels) / len(datasets))
+    midpoints = []
+    for i in range(len(datasets)):
+        group = tick_positions[i * n_methods:(i + 1) * n_methods]
+        midpoints.append(np.mean(group))
+
+    ax.set_xticks(midpoints)
+    ax.set_xticklabels(datasets, ha='center')
+    # ax.set_xlabel('dataset')
+
+    # --- Add P/O labels in axes coordinates ---
+    for i, tick in enumerate(tick_positions):
+        if n_methods == 2:
+            label = "w" if i % 2 == 0 else "n"
+        ax.text(
+            tick,
+            -lower_move,  # 5% below the x-axis
+            label,
+            ha='center',
+            va='top',
+            color='black', fontweight='bold',
+            transform=ax.get_xaxis_transform()  # <-- use axis coordinate system
+        )
+
+    fig.subplots_adjust(bottom=0.18)
+    ax.set_ylabel(y_label)
+    # ax.legend()
+
+    # handles, labels = plt.gca().get_legend_handles_labels()
+    plt.tight_layout()
+    return fig
+
+def bar_plot_p_vs_o(
+    results : list,
+    labels: list[str],
+    y_label='throughput (updates/s)',
+    lower_move=0.1, 
+    figsize: tuple[int, int] = (5, 3),
+    palette=None
+):
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.grid(True, axis='y', linestyle='--')
+
+    ax.bar(
+        range(len(labels)),
+        results,
+        color=[palette[label] for label in labels],
+        capsize=5,
+        edgecolor='black'
+    )
+
+    for patch, label in zip(ax.patches, labels):
+        if label.startswith('P'):
+            patch.set_facecolor(patch.get_facecolor())  # keep color
+            patch.set_linewidth(1.0)
+            patch.set_hatch('')
+            patch.set_alpha(0.8)
+        else:  # baseline 'o-'
+            patch.set_edgecolor(patch.get_facecolor())
+            patch.set_facecolor('white')
+            patch.set_linewidth(1.5)
+            patch.set_hatch('///')
+
+    # --- Determine dataset groups ---
+    tick_positions = np.arange(len(labels))
+    split_labels = [lbl.split('-', 1)[-1] if '-' in lbl else lbl for lbl in labels]
+    datasets = []
+    for s in split_labels:
+        if not datasets or s != datasets[-1]:
+            datasets.append(s)
+
+    n_methods = int(len(labels) / len(datasets))
+    midpoints = []
+    for i in range(len(datasets)):
+        group = tick_positions[i * n_methods:(i + 1) * n_methods]
+        midpoints.append(np.mean(group))
+
+    ax.set_xticks(midpoints)
+    ax.set_xticklabels(datasets, ha='center')
+    # ax.set_xlabel('dataset')
+
+    # --- Add P/O labels in axes coordinates ---
+    for i, tick in enumerate(tick_positions):
+        if n_methods == 2:
+            label = "PS" if i % 2 == 0 else "OS"
+        else:
+            label = "PS" if i % 3 == 0 else ("PSs" if i % 3 == 1 else "OS")
+        ax.text(
+            tick,
+            -lower_move,  # 5% below the x-axis
+            label,
+            ha='center',
+            va='top',
+            color='black', fontweight='bold',
+            transform=ax.get_xaxis_transform()  # <-- use axis coordinate system
+        )
+
+    fig.subplots_adjust(bottom=0.18)
+    ax.set_ylabel(y_label)
+    # ax.legend()
+
+    # handles, labels = plt.gca().get_legend_handles_labels()
+    plt.tight_layout()
+    return fig
+
+def plot_scatter(
+    results : list[pd.DataFrame],
+    x_col = 'query_regions',
+    y_col = 'normalized_error',
+    x_max = None,
+    figsize: tuple[int, int] = (5, 3),
+    x_label ='nr query regions',
+    y_label = 'normalized error',
+    palette=None
+):
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    for df in results:
+        if x_col == "total_sketch_queries":
+            df["total_sketch_queries"] = df[
+                ["relevant_nodes", "b_adic_cubes", "candidate_regions", "query_regions"]
+            ].sum(axis=1)
+
+        df = df[df['forced'] == -1] 
+        if x_max is not None:
+            df = df[df[x_col] < x_max] 
+
+        label = df['approach'].iloc[0]
+        ax.scatter(
+            df[x_col],
+            df[y_col],
+            alpha=0.5,
+            label=label,
+            color=palette[label]
+        )
+
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    # ax.legend()
+    ax.grid(True, linestyle='--')
+    plt.tight_layout()
+
+    return fig
+
+
+def error_bar_plot_p_vs_o(
+    results: list[pd.DataFrame],
+    col_y='normalized_error',
+    y_label='runtime (ms)', 
+    figsize: tuple[int, int] = (5, 3),
+    lower_bound: float = 0.0,
+    log_scale=True,
+    lower_move=0.1,
+    palette=None
+):
+    fig, ax = plt.subplots(figsize=figsize)
+    medians = [df[col_y].median() for df in results]
+    q25 = [df[col_y].quantile(0.25) for df in results]
+    q75 = [df[col_y].quantile(0.75) for df in results]
+
+    lower_err = np.array(medians) - np.array(q25)
+    upper_err = np.array(q75) - np.array(medians)
+
+    combined_df = pd.concat(results, ignore_index=True)
+    labels = combined_df['approach'].unique()
+
+    bars = ax.bar(
+        range(len(labels)),
+        medians,
+        yerr=[lower_err, upper_err],
+        color=[palette[label] for label in labels],
+        capsize=3,
+        edgecolor='black'
+    )
+
+    # --- Style bars ---
+    for patch, label in zip(bars, labels):
+        if label.startswith('P'):
+            patch.set_alpha(0.8)
+        else:  # baseline 'O-'
+            patch.set_edgecolor(patch.get_facecolor())
+            patch.set_facecolor('white')
+            patch.set_linewidth(1.5)
+            patch.set_hatch('///')
+
+    # --- Determine dataset groups ---
+    tick_positions = np.arange(len(labels))
+    split_labels = [lbl.split('-', 1)[-1] if '-' in lbl else lbl for lbl in labels]
+    datasets = []
+    for s in split_labels:
+        if not datasets or s != datasets[-1]:
+            datasets.append(s)
+
+    n_methods = int(len(labels) / len(datasets))
+    midpoints = []
+    for i in range(len(datasets)):
+        group = tick_positions[i * n_methods:(i + 1) * n_methods]
+        midpoints.append(np.mean(group))
+
+    ax.set_xticks(midpoints)
+    ax.set_xticklabels(datasets, ha='center')
+    # ax.set_xlabel('dataset')
+
+    # --- Add P/O labels in axes coordinates ---
+    for i, tick in enumerate(tick_positions):
+        label = "PS" if i % 2 == 0 else "OS"
+        ax.text(
+            tick,
+            -lower_move,
+            label,
+            ha='center',
+            va='top',
+            color='black',
+            transform=ax.get_xaxis_transform()  # <-- use axis coordinate system
+        )
+
+    fig.subplots_adjust(bottom=0.18)
+
+    if log_scale:
+        ax.set_yscale('log')
+    else:
+        ax.set_ylim(lower_bound, None)
+
+    ax.set_ylabel(y_label)
+    
+    # ax.legend()
+    ax.grid(True, axis='y', linestyle='--')
+    plt.tight_layout()
+    return fig
+
+def plot_relative_accuracy_p_vs_o(
+    results: list[pd.DataFrame],
+    figsize: tuple[int, int] = (5, 3),
+    lower_bound: float = 0.0,
+    lower_move=0.1,
+    palette=None
+):
+    fig, ax = plt.subplots(figsize=figsize)
+    medians = [1 - df['relative_error'].median() for df in results]
+    q25 = [1 - df['relative_error'].quantile(0.25) for df in results]
+    q75 = [1 - df['relative_error'].quantile(0.75) for df in results]
+
+    lower_err = np.array(medians) - np.array(q75)
+    upper_err = np.array(q25) - np.array(medians)
+
+    combined_df = pd.concat(results, ignore_index=True)
+    labels = combined_df['approach'].unique()
+
+    ax.axhline(1, color='red', linestyle='-', label='ground truth')
+    bars = ax.bar(
+        range(len(labels)),
+        medians,
+        yerr=[lower_err, upper_err],
+        color=[palette[label] for label in labels],
+        capsize=3,
+        edgecolor='black'
+    )
+
+    # --- Style bars ---
+    for patch, label in zip(bars, labels):
+        if label.startswith('P'):
+            patch.set_alpha(0.8)
+        else:  # baseline 'O-'
+            patch.set_edgecolor(patch.get_facecolor())
+            patch.set_facecolor('white')
+            patch.set_linewidth(1.5)
+            patch.set_hatch('///')
+
+    # --- Determine dataset groups ---
+    tick_positions = np.arange(len(labels))
+    split_labels = [lbl.split('-', 1)[-1] if '-' in lbl else lbl for lbl in labels]
+    datasets = []
+    for s in split_labels:
+        if not datasets or s != datasets[-1]:
+            datasets.append(s)
+
+    n_methods = int(len(labels) / len(datasets))
+    midpoints = []
+    for i in range(len(datasets)):
+        group = tick_positions[i * n_methods:(i + 1) * n_methods]
+        midpoints.append(np.mean(group))
+
+    ax.set_xticks(midpoints)
+    ax.set_xticklabels(datasets, ha='center')
+    # ax.set_xlabel('dataset')
+
+    # --- Add P/O labels in axes coordinates ---
+    for i, tick in enumerate(tick_positions):
+        label = "PS" if i % 2 == 0 else "OS"
+        ax.text(
+            tick,
+            -lower_move,  # 5% below the x-axis
+            label,
+            ha='center',
+            va='top',
+            color='black',
+            transform=ax.get_xaxis_transform()  # <-- use axis coordinate system
+        )
+
+    fig.subplots_adjust(bottom=0.18)
+
+    ax.set_ylabel('relative accuracy')
+    ax.set_ylim(lower_bound, 1.05)
+    ax.legend()
+    ax.grid(True, axis='y', linestyle='--')
+    plt.tight_layout()
+    return fig
+
+
+def plot_violinplot_p_vs_o(
+    dfs, 
+    col_y='normalized_error', 
+    y_label='normalized error', 
+    lower_move=0.09,
+    figsize=(8, 6), 
+    log_scale=False, 
+    palette=None, 
+    rotation=False, 
+    path_to_file=None,
+    show_legend=False
+) -> plt.Figure:
+    # Add 'approach' column if missing (assumes each df has a unique approach)
+    for df in dfs:
+        if 'approach' not in df.columns:
+            raise ValueError("Each DataFrame must have an 'approach' column.")
+
+    combined_df = pd.concat(dfs, ignore_index=True)
+    fig, ax = plt.subplots(figsize=figsize)
+
+    sns.violinplot(
+        x='approach',
+        y=col_y, 
+        hue='approach', 
+        data=combined_df, 
+        palette=palette, 
+        ax=ax,
+        cut=0,          # avoid extending beyond observed range
+        inner='quartile', # draw box-style quartile lines inside violin
+        # linewidth=1.5
+    )
+
+    approaches = combined_df['approach'].unique()
+    for i, c in enumerate(ax.collections):
+        fc = c.get_facecolor()
+        if i % 2 == 0:
+            c.set_alpha(0.8)
+            c.set_edgecolor('black')
+            # c.set_linewidth(1.2)
+        else:
+            c.set_facecolor('white')     # white fill
+            c.set_edgecolor(fc)
+            c.set_linewidth(1.5)
+
+    ax.set_xlabel('')
+    ax.set_ylabel(y_label)
+
+    ax.grid(True, axis='y', linestyle='--')
+
+    if log_scale:
+        ax.set_yscale('log')
+
+       # === Centered dataset labels (as before) ===
+    fig.canvas.draw()
+    raw_tick_labels = [t.get_text() for t in ax.get_xticklabels()]
+    split_labels = [lbl.split('-', 1)[-1] if '-' in lbl else lbl for lbl in raw_tick_labels]
+    datasets = []
+    for s in split_labels:
+        if not datasets or s != datasets[-1]:
+            datasets.append(s)
+
+    n_methods = int(len(raw_tick_labels) / len(datasets))
+    xticks = ax.get_xticks()
+    midpoints = []
+    for i in range(len(datasets)):
+        group = xticks[i * n_methods:(i + 1) * n_methods]
+        midpoints.append(np.mean(group))
+
+    ax.set_xticks(midpoints)
+    ax.set_xticklabels(datasets, rotation=rotation, ha='center')
+
+    # === Add method labels ("P", "O") under each dataset ===
+    ylim = ax.get_ylim()
+    if ax.get_yscale() == 'log':
+        # multiplicative offset for log scale (move slightly below lower limit)
+        y_pos = ylim[0] / (ylim[1] / ylim[0]) ** lower_move
+    else:
+        # additive offset for linear scale
+        y_pos = ylim[0] - (ylim[1] - ylim[0]) * 0.05
+
+    for i, tick in enumerate(xticks):
+        # alternate between P and O (assuming 2 per dataset)
+        label = "PS" if i % 2 == 0 else "OS"
+        ax.text(
+            tick, y_pos, label,
+            ha='center', va='top',
+            color='black'
+        )
+
+    # adjust limits so labels fit
+    # ax.set_ylim(ylim[0] - (ylim[1] - ylim[0]) * 0.1, ylim[1])
+
+    if rotation:
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=rotation, ha='center')
+
+    if not show_legend and ax.get_legend():
+        ax.get_legend().remove()
+
+    plt.tight_layout()
+
+    if path_to_file:
+        fig.savefig(path_to_file, bbox_inches='tight', pad_inches=0.05)
+
+    return fig
+
+def plot_boxplot_p_vs_o(
+    dfs, 
+    col_y='normalized_error', 
+    y_label='normalized error', 
+    lower_move=0.09,
+    figsize=(8, 6), 
+    log_scale=False, 
+    palette=None, 
+    rotation=False, 
+    path_to_file=None,
+    show_legend=False
+) -> plt.Figure:
+    # Add 'approach' column if missing (assumes each df has a unique approach)
+    for df in dfs:
+        if 'approach' not in df.columns:
+            raise ValueError("Each DataFrame must have an 'approach' column.")
+
+    combined_df = pd.concat(dfs, ignore_index=True)
+    fig, ax = plt.subplots(figsize=figsize)
+
+    sns.boxplot(x='approach', y=col_y, hue='approach', data=combined_df, palette=palette, ax=ax)
+
+    approaches = combined_df['approach'].unique()
+    for patch, label in zip(ax.patches, approaches):
+        if label.startswith('P'):
+            patch.set_facecolor(patch.get_facecolor())  # keep color
+            patch.set_linewidth(1.0)
+            patch.set_alpha(0.8)
+            patch.set_hatch('')
+        else:  # baseline 'o-'
+            patch.set_edgecolor(patch.get_facecolor())
+            patch.set_facecolor('white')
+            patch.set_linewidth(1.5)
+            patch.set_hatch('////')
+
+    ax.set_xlabel('')
+    ax.set_ylabel(y_label)
+    # ax.ticklabel_format(axis='y', style='sci')
+
+    ax.grid(True, axis='y', linestyle='--')
+
+    if log_scale:
+        ax.set_yscale('log')
+
+      # === Centered dataset labels (as before) ===
+    fig.canvas.draw()
+    raw_tick_labels = [t.get_text() for t in ax.get_xticklabels()]
+    split_labels = [lbl.split('-', 1)[-1] if '-' in lbl else lbl for lbl in raw_tick_labels]
+    datasets = []
+    for s in split_labels:
+        if not datasets or s != datasets[-1]:
+            datasets.append(s)
+
+    n_methods = int(len(raw_tick_labels) / len(datasets))
+    xticks = ax.get_xticks()
+    midpoints = []
+    for i in range(len(datasets)):
+        group = xticks[i * n_methods:(i + 1) * n_methods]
+        midpoints.append(np.mean(group))
+
+    ax.set_xticks(midpoints)
+    ax.set_xticklabels(datasets, rotation=rotation, ha='center')
+
+    # === Add method labels ("P", "O") under each dataset ===
+    ylim = ax.get_ylim()
+    if ax.get_yscale() == 'log':
+        # multiplicative offset for log scale (move slightly below lower limit)
+        y_pos = ylim[0] / (ylim[1] / ylim[0]) ** lower_move
+    else:
+        # additive offset for linear scale
+        y_pos = ylim[0] - (ylim[1] - ylim[0]) * 0.05
+
+    for i, tick in enumerate(xticks):
+        # alternate between P and O (assuming 2 per dataset)
+        label = "PS" if i % 2 == 0 else "OS"
+        ax.text(
+            tick, y_pos, label,
+            ha='center', va='top',
+            color='black', fontweight='bold'
+        )
+
+    if rotation:
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=rotation, ha='center')
+
+    if not show_legend and ax.get_legend():
+        ax.get_legend().remove()
+
+    plt.tight_layout()
+
+    if path_to_file:
+        fig.savefig(path_to_file, bbox_inches='tight', pad_inches=0.05)
+
+    return fig
+
+
+def plot_selectivities(
+        dataset_name, 
+        base_results_path = '../results/experiments_results/',
+        figsize = (8, 6)):
+    # selectivities = np.array([0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64])
+    datasets_palette = {
+            'tpch' : 'tab:blue',
+            'retail' : 'tab:orange',
+            'census' : 'tab:purple',
+            'bank' : 'tab:green'
+        }
+    
+    selectivities = np.array([0.01, 0.04, 0.16, 0.64])
+    approaches = ['pacha', 'omni'] 
+
+    results = []
+    for appoach in approaches:
+        for sel in selectivities:
+            result_df = pd.read_csv(f"{base_results_path}{appoach}/{dataset_name}/selectivities/{dataset_name}_sel_{sel}.csv")
+            result_df['approach'] = f'{appoach[0].upper()}-'+str(sel)
+            results.append(result_df)
+
+    n_measurements = len(selectivities)
+    index_array = [i + j * n_measurements for i in range(n_measurements) for j in range(2)]
+    results = [results[i] for i in index_array]
+
+    combined_df = pd.concat(results, ignore_index=True)
+    labels = combined_df['approach'].unique()
+    custom_palette = {}
+    for label in labels:
+        custom_palette[label] = datasets_palette[dataset_name]
+    return plot_boxplot_p_vs_o(results, log_scale=True, figsize=figsize, palette=custom_palette)
+
+def plot_predicates(
+        dataset_name, 
+        predicates_type:str,
+        base_results_path = '../results/experiments_results/',
+        figsize = (8, 6)):
+    
+    datasets_palette = {
+            'tpch' : 'tab:blue',
+            'retail' : 'tab:orange',
+            'census' : 'tab:purple',
+            'bank' : 'tab:green'
+        }
+    
+    n_num_dims = {
+        'tpch': 5,
+        'retail': 3,
+        'census': 3,
+        'bank': 4
+    }
+
+    n_cat_dims = {
+        'tpch': 5,
+        'retail': 3,
+        'census': 7,
+        'bank': 6
+    }
+
+    
+    if predicates_type == 'numerical':
+        n_dims = np.arange(1, n_num_dims[dataset_name] + 1)
+        labels = n_dims.copy()
+    elif predicates_type == 'categorical':
+        n_dims = np.arange(1, n_cat_dims[dataset_name] + 1)
+        labels = n_dims.copy()
+    elif predicates_type == 'mixed':
+        dom_dims = n_cat_dims[dataset_name]
+        n_dims = np.arange(1, dom_dims + 1)
+        labels = n_dims.copy()
+        n = 1
+        for i in n_dims - 1:
+            labels[i] += n
+            if n < n_num_dims[dataset_name]:
+                n += 1
+        
+    else:
+        raise ValueError("predicates_type must be 'numerical', 'categorical', or 'mixed'")
+
+    short_name = predicates_type.replace('numerical', 'num').replace('categorical', 'cat').replace('mixed', 'mix')
+    
+    results = []
+    approaches = ['pacha', 'omni']
+    for appoach in approaches: 
+        for i, n in enumerate(n_dims):
+            result_df = pd.read_csv(f"{base_results_path}{appoach}/{dataset_name}/{predicates_type}/{dataset_name}_{short_name}_{n}.csv")
+            result_df['approach'] = f'{appoach[0].upper()}-'+str(labels[i])
+            # print(result_df['normalized_error'].median())
+            results.append(result_df)
+    
+    n_measurements = len(n_dims)
+    index_array = [i + j * n_measurements for i in range(n_measurements) for j in range(2)]
+    results = [results[i] for i in index_array]
+
+    combined_df = pd.concat(results, ignore_index=True)
+    labels = combined_df['approach'].unique()
+    custom_palette = {}
+    for n in labels:
+        custom_palette[n] = datasets_palette[dataset_name]
+    return plot_boxplot_p_vs_o(results, log_scale=True, x_label='nr. predicates', figsize=figsize, palette=custom_palette)
 
 def plot_boxplot(
     dfs, 
@@ -74,17 +756,88 @@ def plot_boxplot(
         if isinstance(target, (list, np.ndarray, pd.Series)):
             approaches = combined_df['approach'].unique()
             if len(target) == len(approaches):
-                median_n_queries = [df['query_regions'].median() for df in dfs]
+                median_n_queries = [df['query_regions'].max() for df in dfs]
                 x_min, x_max = -0.5, len(approaches) - 0.5
                 median_errors = np.array(median_n_queries) * np.array(target)
-                ax.plot([x_min, x_max], [median_errors[0], median_errors[-1]], color='orange', linestyle='-', linewidth=2, label='Target (Median)')
-                ax.plot([x_min, x_max], [target[0], target[-1]], color='red', linestyle='--', linewidth=2, label='Target')
+                ax.plot([x_min, x_max], [median_errors[0], median_errors[-1]], color='red', linestyle='--', linewidth=2, label='Target (Median)')
+                # ax.plot([x_min, x_max], [target[0], target[-1]], color='red', linestyle='--', linewidth=2, label='Target')
             else:
                 raise ValueError("Length of target values must match number of approaches.")
         else:
-            median_n_queries = dfs[-1]['query_regions'].median()
-            ax.axhline(target * median_n_queries, color='orange', linestyle='-', linewidth=2, label='Target')
-            ax.axhline(target, color='red', linestyle='--', linewidth=2, label='Target')
+            median_n_queries = dfs[-1]['query_regions'].max()
+            ax.axhline(target * median_n_queries, color='red', linestyle='--', linewidth=2, label='Target')
+            # ax.axhline(target, color='red', linestyle='--', linewidth=2, label='Target')
+
+    ax.grid(True, axis='y', linestyle='--')
+
+    if log_scale:
+        ax.set_yscale('log')
+
+    if rotation:
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=rotation, ha='center')
+
+    if not show_legend and ax.get_legend():
+        ax.get_legend().remove()
+
+    plt.tight_layout()
+
+    if path_to_file:
+        fig.savefig(path_to_file, bbox_inches='tight', pad_inches=0.05)
+
+    return fig
+
+def plot_violinplot(
+    dfs, 
+    col_y='normalized_error', 
+    y_label='normalized error', 
+    x_label="approach", 
+    figsize=(8, 6), 
+    log_scale=False, 
+    palette=None, 
+    rotation=False, 
+    target=None,  
+    path_to_file=None,
+    show_legend=False
+) -> plt.Figure:
+    # Add 'approach' column if missing (assumes each df has a unique approach)
+    for df in dfs:
+        if 'approach' not in df.columns:
+            raise ValueError("Each DataFrame must have an 'approach' column.")
+
+    combined_df = pd.concat(dfs, ignore_index=True)
+    fig, ax = plt.subplots(figsize=figsize)
+
+    sns.violinplot(
+        x='approach',
+        y=col_y, 
+        hue='approach', 
+        data=combined_df, 
+        palette=palette, 
+        ax=ax,
+        cut=0,          # avoid extending beyond observed range
+        inner='quartile', # draw box-style quartile lines inside violin
+        alpha=0.8
+        # linewidth=1.5
+    )
+
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+
+    if target is not None:
+        if isinstance(target, (list, np.ndarray, pd.Series)):
+            approaches = combined_df['approach'].unique()
+            if len(target) == len(approaches):
+                median_n_queries = [df['query_regions'].max() for df in dfs]
+                x_min, x_max = -0.5, len(approaches) - 0.5
+                median_errors = np.array(median_n_queries) * np.array(target)
+                ax.plot([x_min, x_max], [median_errors[0], median_errors[-1]], color='red', linestyle='--', linewidth=2, label='Target (Median)')
+                # ax.plot([x_min, x_max], [target[0], target[-1]], color='red', linestyle='--', linewidth=2, label='Target')
+            else:
+                raise ValueError("Length of target values must match number of approaches.")
+        else:
+            median_n_queries = dfs[-1]['query_regions'].max()
+            ax.axhline(target * median_n_queries, color='red', linestyle='--', linewidth=2, label='Target')
+            # ax.axhline(target, color='red', linestyle='--', linewidth=2, label='Target')
 
     ax.grid(True, axis='y', linestyle='--')
 
