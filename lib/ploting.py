@@ -28,6 +28,18 @@ def set_style(font_scale: float = 0.8) -> None:
     # Additional Matplotlib settings for LaTeX rendering
     plt.rc("text", usetex=True)
     plt.rcParams["text.latex.preamble"] = r"\newcommand{\system}[0]{\textsc{Tbd}}"
+   
+    # plt.rcParams["figure.constrained_layout.use"] = True
+    # # plt.rcParams["figure.constrained_layout.w_pad"] = 0.005  # default ~0.04167
+    # # plt.rcParams["figure.constrained_layout.h_pad"] = 0.005
+    # plt.rcParams["figure.constrained_layout.hspace"] = 0.0
+    # plt.rcParams["figure.constrained_layout.wspace"] = 0.0
+
+    plt.rcParams["xtick.major.pad"] = 2  # default ~3.5
+    plt.rcParams["ytick.major.pad"] = 2  # default ~3.5
+    plt.rcParams["axes.labelpad"] = 2
+
+
 
 def plot_ylabel(path: str, label: str, bbox: BboxBase, height: float, width: float = 0.25) -> None:
     fig, ax = plt.subplots(1, 1, figsize=(3, height))

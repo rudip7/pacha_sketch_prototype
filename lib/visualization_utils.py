@@ -16,6 +16,8 @@ import pandas as pd
 from ctypes import c_int32
 from itertools import product
 from numbers import Number
+from matplotlib.ticker import MaxNLocator
+
 
 
 
@@ -62,7 +64,8 @@ def bar_plot(
         results,
         color=[palette[label] for label in labels],
         capsize=5,
-        edgecolor='black'
+        edgecolor='black',
+        alpha=0.8
     )
 
     ax.set_xticks(range(len(labels)))
@@ -91,7 +94,8 @@ def bar_plot_no_outliers(
         results,
         color=[palette[label] for label in labels],
         capsize=5,
-        edgecolor='black'
+        edgecolor='black',
+        width=0.8
     )
 
     for patch, label in zip(ax.patches, labels):
@@ -125,6 +129,8 @@ def bar_plot_no_outliers(
     # ax.set_xlabel('dataset')
 
     # --- Add P/O labels in axes coordinates ---
+    tick_fontsize = ax.get_xticklabels()[0].get_fontsize()
+    smaller_fontsize = tick_fontsize * 0.8
     for i, tick in enumerate(tick_positions):
         if n_methods == 2:
             label = "w" if i % 2 == 0 else "n"
@@ -135,6 +141,7 @@ def bar_plot_no_outliers(
             ha='center',
             va='top',
             color='black', fontweight='bold',
+            fontsize=smaller_fontsize ,
             transform=ax.get_xaxis_transform()  # <-- use axis coordinate system
         )
 
@@ -149,7 +156,7 @@ def bar_plot_no_outliers(
 def bar_plot_p_vs_o(
     results : list,
     labels: list[str],
-    y_label='throughput (updates/s)',
+    y_label='throughput (updt./s)',
     lower_move=0.1, 
     figsize: tuple[int, int] = (5, 3),
     palette=None
@@ -162,7 +169,8 @@ def bar_plot_p_vs_o(
         results,
         color=[palette[label] for label in labels],
         capsize=5,
-        edgecolor='black'
+        edgecolor='black',
+        width=0.8
     )
 
     for patch, label in zip(ax.patches, labels):
@@ -196,6 +204,8 @@ def bar_plot_p_vs_o(
     # ax.set_xlabel('dataset')
 
     # --- Add P/O labels in axes coordinates ---
+    tick_fontsize = ax.get_xticklabels()[0].get_fontsize()
+    smaller_fontsize = tick_fontsize * 0.8
     for i, tick in enumerate(tick_positions):
         if n_methods == 2:
             label = "PS" if i % 2 == 0 else "OS"
@@ -208,6 +218,7 @@ def bar_plot_p_vs_o(
             ha='center',
             va='top',
             color='black', fontweight='bold',
+            fontsize=smaller_fontsize ,
             transform=ax.get_xaxis_transform()  # <-- use axis coordinate system
         )
 
@@ -227,6 +238,7 @@ def plot_scatter(
     figsize: tuple[int, int] = (5, 3),
     x_label ='nr query regions',
     y_label = 'normalized error',
+    step=None,
     palette=None
 ):
 
@@ -251,6 +263,8 @@ def plot_scatter(
             color=palette[label]
         )
 
+    if step is not None:
+        ax.set_xticks(range(0, x_max + 1, step))
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     # ax.legend()
@@ -278,16 +292,19 @@ def error_bar_plot_p_vs_o(
     lower_err = np.array(medians) - np.array(q25)
     upper_err = np.array(q75) - np.array(medians)
 
-    combined_df = pd.concat(results, ignore_index=True)
-    labels = combined_df['approach'].unique()
+    # combined_df = pd.concat(results, ignore_index=True)
+    labels = [df['approach'].iloc[0] for df in results]
 
+    yerr = np.array([lower_err, upper_err])
     bars = ax.bar(
         range(len(labels)),
         medians,
-        yerr=[lower_err, upper_err],
+        yerr=yerr,
+        align='center',
         color=[palette[label] for label in labels],
-        capsize=3,
-        edgecolor='black'
+        capsize=1,
+        edgecolor='black',
+        width=0.8
     )
 
     # --- Style bars ---
@@ -297,8 +314,8 @@ def error_bar_plot_p_vs_o(
         else:  # baseline 'O-'
             patch.set_edgecolor(patch.get_facecolor())
             patch.set_facecolor('white')
-            patch.set_linewidth(1.5)
             patch.set_hatch('///')
+            patch.set_linewidth(1.5)
 
     # --- Determine dataset groups ---
     tick_positions = np.arange(len(labels))
@@ -319,6 +336,8 @@ def error_bar_plot_p_vs_o(
     # ax.set_xlabel('dataset')
 
     # --- Add P/O labels in axes coordinates ---
+    tick_fontsize = ax.get_xticklabels()[0].get_fontsize()
+    smaller_fontsize = tick_fontsize * 0.8
     for i, tick in enumerate(tick_positions):
         label = "PS" if i % 2 == 0 else "OS"
         ax.text(
@@ -328,6 +347,7 @@ def error_bar_plot_p_vs_o(
             ha='center',
             va='top',
             color='black',
+            fontsize=smaller_fontsize ,
             transform=ax.get_xaxis_transform()  # <-- use axis coordinate system
         )
 
@@ -368,9 +388,11 @@ def plot_relative_accuracy_p_vs_o(
         range(len(labels)),
         medians,
         yerr=[lower_err, upper_err],
+        align='center',
         color=[palette[label] for label in labels],
-        capsize=3,
-        edgecolor='black'
+        capsize=1,
+        edgecolor='black',
+        width=0.8
     )
 
     # --- Style bars ---
@@ -402,6 +424,8 @@ def plot_relative_accuracy_p_vs_o(
     # ax.set_xlabel('dataset')
 
     # --- Add P/O labels in axes coordinates ---
+    tick_fontsize = ax.get_xticklabels()[0].get_fontsize()
+    smaller_fontsize = tick_fontsize * 0.8
     for i, tick in enumerate(tick_positions):
         label = "PS" if i % 2 == 0 else "OS"
         ax.text(
@@ -411,6 +435,7 @@ def plot_relative_accuracy_p_vs_o(
             ha='center',
             va='top',
             color='black',
+            fontsize=smaller_fontsize ,
             transform=ax.get_xaxis_transform()  # <-- use axis coordinate system
         )
 
@@ -549,8 +574,15 @@ def plot_boxplot_p_vs_o(
     combined_df = pd.concat(dfs, ignore_index=True)
     fig, ax = plt.subplots(figsize=figsize)
 
-    sns.boxplot(x='approach', y=col_y, hue='approach', data=combined_df, palette=palette, ax=ax)
-
+    sns.boxplot(
+        x='approach',
+        y=col_y,
+        hue='approach',
+        data=combined_df,
+        palette=palette,
+        ax=ax,
+        showfliers=False   # Hide outliers
+    )
     approaches = combined_df['approach'].unique()
     for patch, label in zip(ax.patches, approaches):
         if label.startswith('P'):
@@ -601,14 +633,80 @@ def plot_boxplot_p_vs_o(
         # additive offset for linear scale
         y_pos = ylim[0] - (ylim[1] - ylim[0]) * 0.05
 
+    tick_fontsize = ax.get_xticklabels()[0].get_fontsize()
+    smaller_fontsize = tick_fontsize * 0.8
     for i, tick in enumerate(xticks):
         # alternate between P and O (assuming 2 per dataset)
         label = "PS" if i % 2 == 0 else "OS"
         ax.text(
             tick, y_pos, label,
             ha='center', va='top',
-            color='black', fontweight='bold'
+            color='black',
+            fontsize=smaller_fontsize 
         )
+
+    if rotation:
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=rotation, ha='center')
+
+    if not show_legend and ax.get_legend():
+        ax.get_legend().remove()
+
+    plt.tight_layout()
+
+    if path_to_file:
+        fig.savefig(path_to_file, bbox_inches='tight', pad_inches=0.05)
+
+    return fig
+
+
+def plot_lineplot_p_vs_o(
+    dfs, 
+    col_y='normalized_error', 
+    y_label='normalized error', 
+    figsize=(8, 6), 
+    log_scale=False, 
+    palette=None, 
+    rotation=False, 
+    path_to_file=None,
+    x_label='nr. predicates',
+    show_legend=False
+) -> plt.Figure:
+    # Add 'approach' column if missing (assumes each df has a unique approach)
+    for df in dfs:
+        if 'approach' not in df.columns:
+            raise ValueError("Each DataFrame must have an 'approach' column.")
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    medians = np.asarray([df[col_y].median() for df in dfs])
+    q25 = np.asarray([df[col_y].quantile(0.25) for df in dfs])
+    q75 = np.asarray([df[col_y].quantile(0.75) for df in dfs])
+
+    pacha_indices = np.arange(0, len(dfs), 2)
+    omni_indices = np.arange(1, len(dfs), 2)
+
+    combined_df = pd.concat(dfs, ignore_index=True)
+    approaches = combined_df['approach'].unique()
+    split_labels = [lbl.split('-', 1)[-1] if '-' in lbl else lbl for lbl in approaches]
+    labels = []
+    for s in split_labels:
+        if not labels or s != labels[-1]:
+            labels.append(s)
+
+    ax.plot(labels, medians[pacha_indices], marker='o', label='Pacha Sketch', color=palette['pacha'])
+    ax.fill_between(labels, q25[pacha_indices], q75[pacha_indices], color=palette['pacha'], alpha=0.2)
+
+    ax.plot(labels, medians[omni_indices], marker='x', label='Omni Sketch', color=palette['omni'])
+    ax.fill_between(labels, q25[omni_indices], q75[omni_indices], color=palette['omni'], alpha=0.2)
+
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    # ax.ticklabel_format(axis='y', style='sci')
+
+    ax.grid(True, axis='y', linestyle='--')
+
+    if log_scale:
+        ax.set_yscale('log')
 
     if rotation:
         ax.set_xticklabels(ax.get_xticklabels(), rotation=rotation, ha='center')
@@ -627,7 +725,8 @@ def plot_boxplot_p_vs_o(
 def plot_selectivities(
         dataset_name, 
         base_results_path = '../results/experiments_results/',
-        figsize = (8, 6)):
+        figsize = (8, 6),
+        lower_move=0.20):
     # selectivities = np.array([0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64])
     datasets_palette = {
             'tpch' : 'tab:blue',
@@ -652,16 +751,21 @@ def plot_selectivities(
 
     combined_df = pd.concat(results, ignore_index=True)
     labels = combined_df['approach'].unique()
-    custom_palette = {}
-    for label in labels:
-        custom_palette[label] = datasets_palette[dataset_name]
-    return plot_boxplot_p_vs_o(results, log_scale=True, figsize=figsize, palette=custom_palette)
+    # custom_palette = {}
+    # for label in labels:
+    #     custom_palette[label] = datasets_palette[dataset_name]
+
+    custom_palette = {"pacha" : "tab:blue", "omni" : "tab:orange"}
+
+    return plot_lineplot_p_vs_o(results, x_label='selectivity', log_scale=True, figsize=figsize, palette=custom_palette)
+    # return plot_boxplot_p_vs_o(results, lower_move=lower_move, log_scale=True, figsize=figsize, palette=custom_palette)
 
 def plot_predicates(
         dataset_name, 
         predicates_type:str,
         base_results_path = '../results/experiments_results/',
-        figsize = (8, 6)):
+        figsize = (8, 6),
+        lower_move=0.20):
     
     datasets_palette = {
             'tpch' : 'tab:blue',
@@ -721,10 +825,15 @@ def plot_predicates(
 
     combined_df = pd.concat(results, ignore_index=True)
     labels = combined_df['approach'].unique()
-    custom_palette = {}
-    for n in labels:
-        custom_palette[n] = datasets_palette[dataset_name]
-    return plot_boxplot_p_vs_o(results, log_scale=True, x_label='nr. predicates', figsize=figsize, palette=custom_palette)
+    # custom_palette = {}
+    # for n in labels:
+    #     custom_palette[n] = datasets_palette[dataset_name]
+
+    custom_palette = {"pacha" : "tab:blue", "omni" : "tab:orange"}
+
+    return plot_lineplot_p_vs_o(results, log_scale=True, figsize=figsize, palette=custom_palette)
+    
+    # return plot_boxplot_p_vs_o(results, lower_move=lower_move, log_scale=True, figsize=figsize, palette=custom_palette)
 
 def plot_boxplot(
     dfs, 
@@ -734,7 +843,8 @@ def plot_boxplot(
     figsize=(8, 6), 
     log_scale=False, 
     palette=None, 
-    rotation=False, 
+    rotation=False,
+    scale_x_ticks=None, 
     target=None,  
     path_to_file=None,
     show_legend=False
@@ -747,7 +857,11 @@ def plot_boxplot(
     combined_df = pd.concat(dfs, ignore_index=True)
     fig, ax = plt.subplots(figsize=figsize)
 
-    sns.boxplot(x='approach', y=col_y, hue='approach', data=combined_df, palette=palette, ax=ax)
+    sns.boxplot(x='approach', y=col_y, hue='approach', data=combined_df, palette=palette, ax=ax,
+                flierprops=dict(markersize=1, markeredgecolor=(0, 0, 0, 0.3)))
+
+    for patch in ax.patches:
+        patch.set_alpha(0.8)
 
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
@@ -772,6 +886,12 @@ def plot_boxplot(
 
     if log_scale:
         ax.set_yscale('log')
+
+    if scale_x_ticks:
+        tick_fontsize = ax.get_xticklabels()[0].get_fontsize()
+        smaller_fontsize = tick_fontsize * scale_x_ticks
+        for tick in ax.get_xticklabels():
+            tick.set_fontsize(smaller_fontsize)
 
     if rotation:
         ax.set_xticklabels(ax.get_xticklabels(), rotation=rotation, ha='center')
