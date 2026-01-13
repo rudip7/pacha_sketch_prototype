@@ -36,14 +36,31 @@ __all__ = ["Baseline", "CentralDPServer", "LDPClient", "LDPServer", "LDPEncoderG
             "query_df", "infer_domains_and_ranges", "translate_query_region"]
 
 
-def compute_relative_entropy(results_df: pd.DataFrame) -> float:
+def compute_relative_entropy(results_df: pd.DataFrame, col='true_counts') -> float:
     # Ensure no negative or zero values for entropy calculation
-    true_counts = results_df['true_counts'].clip(lower=1).astype(float)
+    true_counts = results_df[col].clip(lower=1).astype(float)
     estimates = results_df['estimates'].clip(lower=1).astype(float)
 
     # Normalize to probability distributions
     true_dist = true_counts / true_counts.sum()
     est_dist = estimates / estimates.sum()
+
+    # Compute relative entropy (Kullback-Leibler divergence)
+    relative_entropy = entropy(true_dist, est_dist)
+    return relative_entropy
+
+def minmax(x):
+    x_min = x.min() -1
+    return (x - x_min) / (x.max() - x.min())
+
+def compute_relative_entropy2(results_df: pd.DataFrame, col='true_counts') -> float:
+    # Ensure no negative or zero values for entropy calculation
+    true_counts = results_df[col].astype(float)
+    estimates = results_df['estimates'].astype(float)
+
+    # Normalize to probability distributions
+    true_dist = minmax(true_counts)
+    est_dist = minmax(estimates)
 
     # Compute relative entropy (Kullback-Leibler divergence)
     relative_entropy = entropy(true_dist, est_dist)

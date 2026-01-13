@@ -153,6 +153,52 @@ def bar_plot_no_outliers(
     plt.tight_layout()
     return fig
 
+
+def legend_bar_plot_p_vs_o(
+    results : list,
+    labels: list[str],
+    y_label='throughput (updt./s)',
+    lower_move=0.1, 
+    figsize: tuple[int, int] = (5, 3),
+    palette=None
+):
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.grid(True, axis='y', linestyle='--')
+
+    ax.bar(
+        range(len(labels)),
+        results,
+        color=[palette[label] for label in labels],
+        capsize=5,
+        edgecolor='black',
+        width=0.8
+    )
+
+    for patch, label in zip(ax.patches, labels):
+        if label.startswith('Ps'):
+            patch.set_facecolor(patch.get_facecolor())  # keep color
+            patch.set_linewidth(1.0)
+            patch.set_hatch('')
+            patch.set_alpha(0.6)
+        elif label.startswith('P'):
+            patch.set_facecolor(patch.get_facecolor())  # keep color
+            patch.set_linewidth(1.0)
+            patch.set_hatch('')
+            patch.set_alpha(0.8)
+        else:  # baseline 'o-'
+            patch.set_edgecolor(patch.get_facecolor())
+            patch.set_facecolor('white')
+            patch.set_linewidth(1.5)
+            patch.set_hatch('///')
+
+    fig.subplots_adjust(bottom=0.18)
+    ax.set_ylabel(y_label)
+    # ax.legend()
+
+    # handles, labels = plt.gca().get_legend_handles_labels()
+    plt.tight_layout()
+    return fig, ax
+
 def bar_plot_p_vs_o(
     results : list,
     labels: list[str],
@@ -174,7 +220,12 @@ def bar_plot_p_vs_o(
     )
 
     for patch, label in zip(ax.patches, labels):
-        if label.startswith('P'):
+        if label.startswith('Ps'):
+            patch.set_facecolor(patch.get_facecolor())  # keep color
+            patch.set_linewidth(1.0)
+            patch.set_hatch('')
+            patch.set_alpha(0.6)
+        elif label.startswith('P'):
             patch.set_facecolor(patch.get_facecolor())  # keep color
             patch.set_linewidth(1.0)
             patch.set_hatch('')
@@ -564,9 +615,10 @@ def plot_boxplot_p_vs_o(
     palette=None, 
     rotation=False, 
     path_to_file=None,
-    show_legend=False
+    show_legend=False,
+    relative_entropies=None
 ) -> plt.Figure:
-    # Add 'approach' column if missing (assumes each df has a unique approach)
+    # Add 'approach' column if missing
     for df in dfs:
         if 'approach' not in df.columns:
             raise ValueError("Each DataFrame must have an 'approach' column.")
@@ -574,41 +626,72 @@ def plot_boxplot_p_vs_o(
     combined_df = pd.concat(dfs, ignore_index=True)
     fig, ax = plt.subplots(figsize=figsize)
 
-    sns.boxplot(
+    bp = sns.boxplot(
         x='approach',
         y=col_y,
         hue='approach',
         data=combined_df,
         palette=palette,
         ax=ax,
-        showfliers=False   # Hide outliers
+        showfliers=False
     )
+
     approaches = combined_df['approach'].unique()
+
+    # Style patches depending on approach
     for patch, label in zip(ax.patches, approaches):
         if label.startswith('P'):
-            patch.set_facecolor(patch.get_facecolor())  # keep color
+            patch.set_facecolor(patch.get_facecolor())
             patch.set_linewidth(1.0)
             patch.set_alpha(0.8)
             patch.set_hatch('')
-        else:  # baseline 'o-'
+        else:
             patch.set_edgecolor(patch.get_facecolor())
             patch.set_facecolor('white')
             patch.set_linewidth(1.5)
             patch.set_hatch('////')
 
+    tick_fontsize = ax.get_xticklabels()[0].get_fontsize() 
+
+    rel_entropy_color = 'tab:red'
+
+    # === ✅ Add relative entropy values above each box ===
+    if relative_entropies is not None:
+        if len(relative_entropies) != len(approaches):
+            raise ValueError(
+                f"Expected {len(approaches)} relative entropy values, "
+                f"but got {len(relative_entropies)}."
+            )
+
+        # Create secondary y-axis
+        ax2 = ax.twinx()
+        ax2.set_ylabel("relative entropy", color=rel_entropy_color)
+        ax2.tick_params(axis='y', labelcolor=rel_entropy_color)
+        ax2.spines['right'].set_color(rel_entropy_color)
+        ax2.tick_params(axis='y', colors=rel_entropy_color)
+
+        # Plot relative entropy as scatter on top of boxplots
+        for i, value in enumerate(relative_entropies):
+            x_pos = i  # box positions are integers in seaborn
+            ax2.scatter(x_pos, value, color=rel_entropy_color, zorder=5, marker='x', alpha=0.8)
+        
+        # Optional: set secondary y-limits a bit higher for visibility
+        ax2.set_ylim(0, max(relative_entropies) * 1.2)
+
+
+
     ax.set_xlabel('')
     ax.set_ylabel(y_label)
-    # ax.ticklabel_format(axis='y', style='sci')
-
     ax.grid(True, axis='y', linestyle='--')
 
     if log_scale:
         ax.set_yscale('log')
 
-      # === Centered dataset labels (as before) ===
+    # === Centered dataset labels
     fig.canvas.draw()
     raw_tick_labels = [t.get_text() for t in ax.get_xticklabels()]
     split_labels = [lbl.split('-', 1)[-1] if '-' in lbl else lbl for lbl in raw_tick_labels]
+
     datasets = []
     for s in split_labels:
         if not datasets or s != datasets[-1]:
@@ -624,25 +707,23 @@ def plot_boxplot_p_vs_o(
     ax.set_xticks(midpoints)
     ax.set_xticklabels(datasets, rotation=rotation, ha='center')
 
-    # === Add method labels ("P", "O") under each dataset ===
+    # === Add method labels ("P", "O") under each dataset
     ylim = ax.get_ylim()
     if ax.get_yscale() == 'log':
-        # multiplicative offset for log scale (move slightly below lower limit)
         y_pos = ylim[0] / (ylim[1] / ylim[0]) ** lower_move
     else:
-        # additive offset for linear scale
         y_pos = ylim[0] - (ylim[1] - ylim[0]) * 0.05
 
     tick_fontsize = ax.get_xticklabels()[0].get_fontsize()
     smaller_fontsize = tick_fontsize * 0.8
+
     for i, tick in enumerate(xticks):
-        # alternate between P and O (assuming 2 per dataset)
         label = "PS" if i % 2 == 0 else "OS"
         ax.text(
             tick, y_pos, label,
             ha='center', va='top',
             color='black',
-            fontsize=smaller_fontsize 
+            fontsize=smaller_fontsize
         )
 
     if rotation:
@@ -690,13 +771,15 @@ def plot_lineplot_p_vs_o(
     split_labels = [lbl.split('-', 1)[-1] if '-' in lbl else lbl for lbl in approaches]
     labels = []
     for s in split_labels:
-        if not labels or s != labels[-1]:
+        if s not in labels:
             labels.append(s)
 
-    ax.plot(labels, medians[pacha_indices], marker='o', label='Pacha Sketch', color=palette['pacha'])
+    ax.plot(labels, medians[pacha_indices], label='Pacha Sketch', color=palette['pacha'])
+    # ax.plot(labels, medians[pacha_indices], marker='o', label='Pacha Sketch', color=palette['pacha'])
     ax.fill_between(labels, q25[pacha_indices], q75[pacha_indices], color=palette['pacha'], alpha=0.2)
 
-    ax.plot(labels, medians[omni_indices], marker='x', label='Omni Sketch', color=palette['omni'])
+    ax.plot(labels, medians[omni_indices],  label='Omni Sketch', linestyle='--', color=palette['omni'])
+    # ax.plot(labels, medians[omni_indices], marker='x', label='Omni Sketch', color=palette['omni'])
     ax.fill_between(labels, q25[omni_indices], q75[omni_indices], color=palette['omni'], alpha=0.2)
 
     ax.set_xlabel(x_label)
@@ -719,7 +802,7 @@ def plot_lineplot_p_vs_o(
     if path_to_file:
         fig.savefig(path_to_file, bbox_inches='tight', pad_inches=0.05)
 
-    return fig
+    return fig, ax
 
 
 def plot_selectivities(
@@ -755,7 +838,7 @@ def plot_selectivities(
     # for label in labels:
     #     custom_palette[label] = datasets_palette[dataset_name]
 
-    custom_palette = {"pacha" : "tab:blue", "omni" : "tab:orange"}
+    custom_palette = {"pacha" : "tab:blue", "omni" : "tab:blue"}
 
     return plot_lineplot_p_vs_o(results, x_label='selectivity', log_scale=True, figsize=figsize, palette=custom_palette)
     # return plot_boxplot_p_vs_o(results, lower_move=lower_move, log_scale=True, figsize=figsize, palette=custom_palette)
@@ -829,7 +912,7 @@ def plot_predicates(
     # for n in labels:
     #     custom_palette[n] = datasets_palette[dataset_name]
 
-    custom_palette = {"pacha" : "tab:blue", "omni" : "tab:orange"}
+    custom_palette = {"pacha" : "tab:blue", "omni" : "tab:blue"}
 
     return plot_lineplot_p_vs_o(results, log_scale=True, figsize=figsize, palette=custom_palette)
     
@@ -847,7 +930,9 @@ def plot_boxplot(
     scale_x_ticks=None, 
     target=None,  
     path_to_file=None,
-    show_legend=False
+    show_legend=False,
+    relative_entropies=None,
+    rel_entropies_no_outliers=None
 ) -> plt.Figure:
     # Add 'approach' column if missing (assumes each df has a unique approach)
     for df in dfs:
@@ -866,21 +951,63 @@ def plot_boxplot(
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
 
+    approaches = combined_df['approach'].unique()
     if target is not None:
         if isinstance(target, (list, np.ndarray, pd.Series)):
-            approaches = combined_df['approach'].unique()
             if len(target) == len(approaches):
                 median_n_queries = [df['query_regions'].max() for df in dfs]
                 x_min, x_max = -0.5, len(approaches) - 0.5
                 median_errors = np.array(median_n_queries) * np.array(target)
-                ax.plot([x_min, x_max], [median_errors[0], median_errors[-1]], color='red', linestyle='--', linewidth=2, label='Target (Median)')
+                ax.plot([x_min, x_max], [median_errors[0], median_errors[-1]], color='orange', linestyle='--', linewidth=2, label='Target (Median)')
                 # ax.plot([x_min, x_max], [target[0], target[-1]], color='red', linestyle='--', linewidth=2, label='Target')
             else:
                 raise ValueError("Length of target values must match number of approaches.")
         else:
             median_n_queries = dfs[-1]['query_regions'].max()
-            ax.axhline(target * median_n_queries, color='red', linestyle='--', linewidth=2, label='Target')
+            ax.axhline(target * median_n_queries, color='orange', linestyle='--', linewidth=2, label='Target')
             # ax.axhline(target, color='red', linestyle='--', linewidth=2, label='Target')
+
+
+    rel_entropy_color = 'tab:red'
+
+    # === ✅ Add relative entropy values above each box ===
+    if relative_entropies is not None:
+        if len(relative_entropies) != len(approaches):
+            raise ValueError(
+                f"Expected {len(approaches)} relative entropy values, "
+                f"but got {len(relative_entropies)}."
+            )
+
+        # Create secondary y-axis
+        ax2 = ax.twinx()
+        ax2.set_ylabel("relative entropy", color=rel_entropy_color)
+        ax2.tick_params(axis='y', labelcolor=rel_entropy_color)
+        ax2.spines['right'].set_color(rel_entropy_color)
+        ax2.tick_params(axis='y', colors=rel_entropy_color)
+
+        x_positions = list(range(len(relative_entropies)))
+        ax2.plot(
+            x_positions,
+            relative_entropies,
+            color=rel_entropy_color,
+            zorder=5,
+            alpha=0.8,
+            linestyle='-'
+        )
+
+        # Optional: set secondary y-limits a bit higher for visibility
+        ax2.set_ylim(0, max(relative_entropies) * 1.2)
+
+        if rel_entropies_no_outliers is not None:
+            ax2.plot(
+                x_positions,
+                rel_entropies_no_outliers,
+                color=rel_entropy_color,
+                zorder=5,
+                alpha=0.8,
+                linestyle='--',
+            )
+            # ax2.legend(loc='upper left', bbox_to_anchor=(1.05, 1))
 
     ax.grid(True, axis='y', linestyle='--')
 
@@ -1161,4 +1288,29 @@ def plot_b_adic_cubes(cubes):
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
 
+    plt.show()
+
+
+def plot_estimate_distribution(df: pd.DataFrame, col="true_sums"):
+    order = np.argsort(df[col].values)
+    est_sorted = df["estimates"].values[order]
+    true_sorted = df[col].values[order]
+
+    # order = np.argsort(df_sums["estimates"].values)
+    # est_sorted = df_sums["estimates"].values
+    # true_sorted = df_sums["true_sums"].values
+
+    def minmax(x):
+        return (x - x.min()) / (x.max() - x.min())
+
+    est_norm = minmax(est_sorted)
+    true_norm = minmax(true_sorted)
+
+    plt.figure(figsize=(8,4))
+    plt.plot(est_norm, label="estimates (min-max)", marker="o")
+    plt.plot(true_norm, label=f"{col} (min-max)", marker="o")
+    plt.legend()
+    plt.xlabel("sorted index by estimate")
+    plt.ylabel("normalized value")
+    plt.tight_layout()
     plt.show()
