@@ -605,6 +605,139 @@ def plot_violinplot_p_vs_o(
 
     return fig
 
+def plot_boxplot_p_vs_s(
+    dfs, 
+    col_y='relative_error', 
+    y_label='relative error', 
+    lower_move=0.09,
+    figsize=(8, 6), 
+    log_scale=False, 
+    palette=None, 
+    rotation=False, 
+    path_to_file=None,
+    show_legend=False,
+    relative_entropies=None
+) -> plt.Figure:
+    # Add 'approach' column if missing
+    for df in dfs:
+        if 'approach' not in df.columns:
+            raise ValueError("Each DataFrame must have an 'approach' column.")
+
+    combined_df = pd.concat(dfs, ignore_index=True)
+    fig, ax = plt.subplots(figsize=figsize)
+
+    bp = sns.boxplot(
+        x='approach',
+        y=col_y,
+        hue='approach',
+        data=combined_df,
+        palette=palette,
+        ax=ax,
+        showfliers=False
+    )
+
+    approaches = combined_df['approach'].unique()
+
+    # Style patches depending on approach
+    for patch, label in zip(ax.patches, approaches):
+        if 'P' in label:
+            patch.set_facecolor(patch.get_facecolor())
+            patch.set_linewidth(1.0)
+            patch.set_alpha(0.8)
+            patch.set_hatch('')
+        else:
+            patch.set_edgecolor(patch.get_facecolor())
+            patch.set_facecolor('white')
+            patch.set_linewidth(1.5)
+            patch.set_hatch('XXXX')
+
+    tick_fontsize = ax.get_xticklabels()[0].get_fontsize() 
+
+    rel_entropy_color = 'tab:red'
+
+    # === ✅ Add relative entropy values above each box ===
+    if relative_entropies is not None:
+        if len(relative_entropies) != len(approaches):
+            raise ValueError(
+                f"Expected {len(approaches)} relative entropy values, "
+                f"but got {len(relative_entropies)}."
+            )
+
+        # Create secondary y-axis
+        ax2 = ax.twinx()
+        ax2.set_ylabel("relative entropy", color=rel_entropy_color)
+        ax2.tick_params(axis='y', labelcolor=rel_entropy_color)
+        ax2.spines['right'].set_color(rel_entropy_color)
+        ax2.tick_params(axis='y', colors=rel_entropy_color)
+
+        # Plot relative entropy as scatter on top of boxplots
+        for i, value in enumerate(relative_entropies):
+            x_pos = i  # box positions are integers in seaborn
+            ax2.scatter(x_pos, value, color=rel_entropy_color, zorder=5, marker='x', alpha=0.8)
+        
+        # Optional: set secondary y-limits a bit higher for visibility
+        ax2.set_ylim(0, max(relative_entropies) * 1.2)
+
+    ax.set_xlabel('')
+    ax.set_ylabel(y_label)
+    ax.grid(True, axis='y', linestyle='--')
+
+    if log_scale:
+        ax.set_yscale('log')
+
+    # === Centered dataset labels
+    fig.canvas.draw()
+    raw_tick_labels = [t.get_text() for t in ax.get_xticklabels()]
+    split_labels = [lbl.split('-', 1)[0] if '-' in lbl else lbl for lbl in raw_tick_labels]
+
+    aggregate = []
+    for s in split_labels:
+        if not aggregate or s != aggregate[-1]:
+            aggregate.append(s)
+
+    n_methods = int(len(raw_tick_labels) / len(aggregate))
+    xticks = ax.get_xticks()
+    midpoints = []
+    for i in range(len(aggregate)):
+        group = xticks[i * n_methods:(i + 1) * n_methods]
+        midpoints.append(np.mean(group))
+
+    ax.set_xticks(midpoints)
+    ax.set_xticklabels(aggregate, rotation=rotation, ha='center')
+
+    # === Add method labels ("P", "O") under each dataset
+    ylim = ax.get_ylim()
+    if ax.get_yscale() == 'log':
+        y_pos = ylim[0] / (ylim[1] / ylim[0]) ** lower_move
+    else:
+        y_pos = ylim[0] - (ylim[1] - ylim[0]) * 0.05
+
+    tick_fontsize = ax.get_xticklabels()[0].get_fontsize()
+    smaller_fontsize = tick_fontsize * 0.8
+
+    for i, tick in enumerate(xticks):
+        label = "PS" if i % 2 == 0 else "S"
+        ax.text(
+            tick, y_pos, label,
+            ha='center', va='top',
+            color='black',
+            fontsize=smaller_fontsize
+        )
+
+    if rotation:
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=rotation, ha='center')
+
+    if not show_legend and ax.get_legend():
+        ax.get_legend().remove()
+
+    plt.tight_layout()
+
+    if path_to_file:
+        fig.savefig(path_to_file, bbox_inches='tight', pad_inches=0.05)
+
+    return fig
+
+
 def plot_boxplot_p_vs_o(
     dfs, 
     col_y='normalized_error', 
