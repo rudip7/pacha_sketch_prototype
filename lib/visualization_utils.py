@@ -18,7 +18,125 @@ from itertools import product
 from numbers import Number
 from matplotlib.ticker import MaxNLocator
 
+# def plot_barplot_heuristics(
+#     dfs,
+#     col_y='runtime',
+#     y_label='runtime (ms)',
+#     palette=None, 
 
+def plot_boxplot_heuristics(
+    dfs, 
+    col_y='normalized_error', 
+    y_label='norm. error', 
+    lower_move=0.09,
+    figsize=(8, 6), 
+    log_scale=False, 
+    palette=None, 
+    rotation=False, 
+    path_to_file=None,
+    show_legend=False,
+    relative_entropies=None,
+    label_prefix="w"
+) -> plt.Figure:
+    # Add 'approach' column if missing
+    for df in dfs:
+        if 'approach' not in df.columns:
+            raise ValueError("Each DataFrame must have an 'approach' column.")
+
+    combined_df = pd.concat(dfs, ignore_index=True)
+    fig, ax = plt.subplots(figsize=figsize, dpi=200.0)
+
+    bp = sns.boxplot(
+        x='approach',
+        y=col_y,
+        hue='approach',
+        data=combined_df,
+        palette=palette,
+        ax=ax,
+        showfliers=False
+    )
+
+    approaches = combined_df['approach'].unique()
+
+    # Style patches depending on approach
+    for patch, label in zip(ax.patches, approaches):
+        if label.startswith('w') or label_prefix == None:
+            patch.set_facecolor(patch.get_facecolor())
+            patch.set_linewidth(1.0)
+            patch.set_alpha(0.8)
+            patch.set_hatch('')
+        else:
+            patch.set_edgecolor(patch.get_facecolor())
+            patch.set_facecolor('white')
+            patch.set_linewidth(1.5)
+            patch.set_hatch('XX')
+
+    tick_fontsize = ax.get_xticklabels()[0].get_fontsize() 
+
+    rel_entropy_color = 'tab:red'
+
+    # === ✅ Add relative entropy values above each box ===
+    if relative_entropies is not None:
+        if len(relative_entropies) != len(approaches):
+            raise ValueError(
+                f"Expected {len(approaches)} relative entropy values, "
+                f"but got {len(relative_entropies)}."
+            )
+
+        # Create secondary y-axis
+        ax2 = ax.twinx()
+        ax2.set_ylabel("rel. entropy", color=rel_entropy_color)
+        ax2.tick_params(axis='y', labelcolor=rel_entropy_color)
+        ax2.spines['right'].set_color(rel_entropy_color)
+        ax2.tick_params(axis='y', colors=rel_entropy_color)
+
+        # Plot relative entropy as scatter on top of boxplots
+        for i, value in enumerate(relative_entropies):
+            x_pos = i  # box positions are integers in seaborn
+            ax2.scatter(x_pos, value, color=rel_entropy_color, zorder=5, marker='x', alpha=0.8)
+        
+        # Optional: set secondary y-limits a bit higher for visibility
+        ax2.set_ylim(0, max(relative_entropies) * 1.2)
+
+
+
+    ax.set_xlabel('')
+    ax.set_ylabel(y_label)
+    ax.grid(True, axis='y', linestyle='--')
+
+    if log_scale:
+        ax.set_yscale('log')
+
+    # === Centered dataset labels
+    fig.canvas.draw()
+    raw_tick_labels = [t.get_text() for t in ax.get_xticklabels()]
+    split_labels = [lbl.split('-', 1)[-1] if '-' in lbl else lbl for lbl in raw_tick_labels]
+
+    datasets = []
+    for s in split_labels:
+        if not datasets or s != datasets[-1]:
+            datasets.append(s)
+
+    n_methods = int(len(raw_tick_labels) / len(datasets))
+    xticks = ax.get_xticks()
+    midpoints = []
+    for i in range(len(datasets)):
+        group = xticks[i * n_methods:(i + 1) * n_methods]
+        midpoints.append(np.mean(group))
+
+    ax.set_xticks(midpoints)
+    ax.set_xticklabels(datasets, rotation=rotation, ha='center')
+
+    
+    if not show_legend and ax.get_legend():
+        ax.get_legend().remove()
+
+    plt.tight_layout()
+
+    if path_to_file:
+        fig.savefig(path_to_file, bbox_inches='tight', pad_inches=0.05)
+
+    return fig, ax
 
 
 def plot_relative_error(
@@ -202,7 +320,7 @@ def legend_bar_plot_p_vs_o(
 def bar_plot_p_vs_o(
     results : list,
     labels: list[str],
-    y_label='throughput (updt./s)',
+    y_label='throughput (up./s)',
     lower_move=0.1, 
     figsize: tuple[int, int] = (5, 3),
     palette=None
@@ -275,6 +393,8 @@ def bar_plot_p_vs_o(
 
     fig.subplots_adjust(bottom=0.18)
     ax.set_ylabel(y_label)
+    ax.set_yticks([10e3, 20e3, 30e3])
+    ax.set_yticklabels([10, 20,30])
     # ax.legend()
 
     # handles, labels = plt.gca().get_legend_handles_labels()
@@ -290,12 +410,15 @@ def plot_scatter(
     x_label ='nr query regions',
     y_label = 'normalized error',
     step=None,
-    palette=None
+    palette=None,
+    markers=None
 ):
 
     fig, ax = plt.subplots(figsize=figsize)
+    if markers is None:
+        markers = ['o'] * len(results)
 
-    for df in results:
+    for i, df in enumerate(results):
         if x_col == "total_sketch_queries":
             df["total_sketch_queries"] = df[
                 ["relevant_nodes", "b_adic_cubes", "candidate_regions", "query_regions"]
@@ -311,7 +434,8 @@ def plot_scatter(
             df[y_col],
             alpha=0.5,
             label=label,
-            color=palette[label]
+            color=palette[label],
+            marker=markers[i]
         )
 
     if step is not None:
@@ -616,7 +740,8 @@ def plot_boxplot_p_vs_s(
     rotation=False, 
     path_to_file=None,
     show_legend=False,
-    relative_entropies=None
+    relative_entropies=None,
+    plot_sub_title = True
 ) -> plt.Figure:
     # Add 'approach' column if missing
     for df in dfs:
@@ -706,23 +831,24 @@ def plot_boxplot_p_vs_s(
     ax.set_xticklabels(aggregate, rotation=rotation, ha='center')
 
     # === Add method labels ("P", "O") under each dataset
-    ylim = ax.get_ylim()
-    if ax.get_yscale() == 'log':
-        y_pos = ylim[0] / (ylim[1] / ylim[0]) ** lower_move
-    else:
-        y_pos = ylim[0] - (ylim[1] - ylim[0]) * 0.05
+    if plot_sub_title:
+        ylim = ax.get_ylim()
+        if ax.get_yscale() == 'log':
+            y_pos = ylim[0] / (ylim[1] / ylim[0]) ** lower_move
+        else:
+            y_pos = ylim[0] - (ylim[1] - ylim[0]) * 0.05
 
-    tick_fontsize = ax.get_xticklabels()[0].get_fontsize()
-    smaller_fontsize = tick_fontsize * 0.8
+        tick_fontsize = ax.get_xticklabels()[0].get_fontsize()
+        smaller_fontsize = tick_fontsize * 0.8
 
-    for i, tick in enumerate(xticks):
-        label = "PS" if i % 2 == 0 else "S"
-        ax.text(
-            tick, y_pos, label,
-            ha='center', va='top',
-            color='black',
-            fontsize=smaller_fontsize
-        )
+        for i, tick in enumerate(xticks):
+            label = "PS" if i % 2 == 0 else "S"
+            ax.text(
+                tick, y_pos, label,
+                ha='center', va='top',
+                color='black',
+                fontsize=smaller_fontsize
+            )
 
     if rotation:
         ax.set_xticklabels(ax.get_xticklabels(), rotation=rotation, ha='center')
@@ -741,7 +867,7 @@ def plot_boxplot_p_vs_s(
 def plot_boxplot_p_vs_o(
     dfs, 
     col_y='normalized_error', 
-    y_label='normalized error', 
+    y_label='norm. error', 
     lower_move=0.09,
     figsize=(8, 6), 
     log_scale=False, 
@@ -798,7 +924,7 @@ def plot_boxplot_p_vs_o(
 
         # Create secondary y-axis
         ax2 = ax.twinx()
-        ax2.set_ylabel("relative entropy", color=rel_entropy_color)
+        ax2.set_ylabel("rel. entropy", color=rel_entropy_color)
         ax2.tick_params(axis='y', labelcolor=rel_entropy_color)
         ax2.spines['right'].set_color(rel_entropy_color)
         ax2.tick_params(axis='y', colors=rel_entropy_color)
@@ -876,7 +1002,7 @@ def plot_boxplot_p_vs_o(
 def plot_lineplot_p_vs_o(
     dfs, 
     col_y='normalized_error', 
-    y_label='normalized error', 
+    y_label='norm. error', 
     figsize=(8, 6), 
     log_scale=False, 
     palette=None, 
@@ -935,7 +1061,7 @@ def plot_lineplot_p_vs_o(
     if path_to_file:
         fig.savefig(path_to_file, bbox_inches='tight', pad_inches=0.05)
 
-    return fig, ax
+    return fig
 
 
 def plot_selectivities(
@@ -1054,7 +1180,7 @@ def plot_predicates(
 def plot_boxplot(
     dfs, 
     col_y='normalized_error', 
-    y_label='normalized error', 
+    y_label='norm. error', 
     x_label="approach", 
     figsize=(8, 6), 
     log_scale=False, 
@@ -1113,7 +1239,7 @@ def plot_boxplot(
 
         # Create secondary y-axis
         ax2 = ax.twinx()
-        ax2.set_ylabel("relative entropy", color=rel_entropy_color)
+        ax2.set_ylabel("rel. entropy", color=rel_entropy_color)
         ax2.tick_params(axis='y', labelcolor=rel_entropy_color)
         ax2.spines['right'].set_color(rel_entropy_color)
         ax2.tick_params(axis='y', colors=rel_entropy_color)
