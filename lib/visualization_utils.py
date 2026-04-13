@@ -28,11 +28,12 @@ def plot_boxplot_heuristics(
     dfs, 
     col_y='normalized_error', 
     y_label='norm. error', 
+    x_label='', 
     lower_move=0.09,
     figsize=(8, 6), 
     log_scale=False, 
     palette=None, 
-    rotation=False, 
+    rotation=False,
     path_to_file=None,
     show_legend=False,
     relative_entropies=None,
@@ -100,7 +101,7 @@ def plot_boxplot_heuristics(
 
 
 
-    ax.set_xlabel('')
+    ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     ax.grid(True, axis='y', linestyle='--')
 
@@ -341,7 +342,7 @@ def bar_plot_p_vs_o(
         if label.startswith('Ps'):
             patch.set_facecolor(patch.get_facecolor())  # keep color
             patch.set_linewidth(1.0)
-            patch.set_hatch('')
+            patch.set_hatch('..')
             patch.set_alpha(0.6)
         elif label.startswith('P'):
             patch.set_facecolor(patch.get_facecolor())  # keep color
@@ -399,7 +400,7 @@ def bar_plot_p_vs_o(
 
     # handles, labels = plt.gca().get_legend_handles_labels()
     plt.tight_layout()
-    return fig
+    return fig, ax
 
 def plot_scatter(
     results : list[pd.DataFrame],
@@ -733,6 +734,7 @@ def plot_boxplot_p_vs_s(
     dfs, 
     col_y='relative_error', 
     y_label='relative error', 
+    x_label='',
     lower_move=0.09,
     figsize=(8, 6), 
     log_scale=False, 
@@ -803,7 +805,7 @@ def plot_boxplot_p_vs_s(
         # Optional: set secondary y-limits a bit higher for visibility
         ax2.set_ylim(0, max(relative_entropies) * 1.2)
 
-    ax.set_xlabel('')
+    ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     ax.grid(True, axis='y', linestyle='--')
 
@@ -867,7 +869,8 @@ def plot_boxplot_p_vs_s(
 def plot_boxplot_p_vs_o(
     dfs, 
     col_y='normalized_error', 
-    y_label='norm. error', 
+    y_label='normalized error',
+    x_label='', 
     lower_move=0.09,
     figsize=(8, 6), 
     log_scale=False, 
@@ -883,7 +886,7 @@ def plot_boxplot_p_vs_o(
             raise ValueError("Each DataFrame must have an 'approach' column.")
 
     combined_df = pd.concat(dfs, ignore_index=True)
-    fig, ax = plt.subplots(figsize=figsize)
+    fig, ax = plt.subplots(figsize=figsize, dpi=100)
 
     bp = sns.boxplot(
         x='approach',
@@ -924,7 +927,7 @@ def plot_boxplot_p_vs_o(
 
         # Create secondary y-axis
         ax2 = ax.twinx()
-        ax2.set_ylabel("rel. entropy", color=rel_entropy_color)
+        ax2.set_ylabel("relative entropy", color=rel_entropy_color)
         ax2.tick_params(axis='y', labelcolor=rel_entropy_color)
         ax2.spines['right'].set_color(rel_entropy_color)
         ax2.tick_params(axis='y', colors=rel_entropy_color)
@@ -939,7 +942,7 @@ def plot_boxplot_p_vs_o(
 
 
 
-    ax.set_xlabel('')
+    ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     ax.grid(True, axis='y', linestyle='--')
 
@@ -1002,7 +1005,7 @@ def plot_boxplot_p_vs_o(
 def plot_lineplot_p_vs_o(
     dfs, 
     col_y='normalized_error', 
-    y_label='norm. error', 
+    y_label='normalized error', 
     figsize=(8, 6), 
     log_scale=False, 
     palette=None, 
@@ -1180,7 +1183,7 @@ def plot_predicates(
 def plot_boxplot(
     dfs, 
     col_y='normalized_error', 
-    y_label='norm. error', 
+    y_label='normalized error', 
     x_label="approach", 
     figsize=(8, 6), 
     log_scale=False, 
@@ -1239,7 +1242,7 @@ def plot_boxplot(
 
         # Create secondary y-axis
         ax2 = ax.twinx()
-        ax2.set_ylabel("rel. entropy", color=rel_entropy_color)
+        ax2.set_ylabel("relative entropy", color=rel_entropy_color)
         ax2.tick_params(axis='y', labelcolor=rel_entropy_color)
         ax2.spines['right'].set_color(rel_entropy_color)
         ax2.tick_params(axis='y', colors=rel_entropy_color)

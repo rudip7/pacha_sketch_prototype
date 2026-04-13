@@ -308,6 +308,22 @@ def get_true_counts(data_df:pd.DataFrame, path_to_queries:str):
         i += 1
     return true_counts
 
+def get_true_counts_time(data_df:pd.DataFrame, path_to_queries:str):
+    with open(path_to_queries, 'rb') as f:
+        queries_json = orjson.loads(f.read())
+    queries = queries_json['queries']
+    n_queries = len(queries)
+    true_counts = np.empty(n_queries, dtype=np.int32)
+    runtimes = np.empty(n_queries, dtype=np.float64)
+    i = 0
+    for query in queries:
+        start_time = time.time()
+        true_counts[i] = query_df(data_df, query)
+        end_time = time.time()
+        runtimes[i] = end_time - start_time
+        i += 1
+    return true_counts, runtimes
+
 def add_true_counts_and_error(path_to_estimates: str, len_df:int, true_counts:NDArray):
     results_df = pd.read_csv(path_to_estimates)
     # if "true_counts" in results_df.columns:
