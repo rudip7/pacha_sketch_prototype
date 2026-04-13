@@ -170,7 +170,7 @@ def plot_relative_error(
 def bar_plot(
     results : list[Number],
     labels: list[str],
-    y_label='relative entropy', 
+    y_label='rel. entropy', 
     x_label="configuration", 
     figsize: tuple[int, int] = (5, 3),
     palette=None
@@ -200,7 +200,7 @@ def bar_plot(
 def bar_plot_no_outliers(
     results : list,
     labels: list[str],
-    y_label='relative entropy',
+    y_label='rel. entropy',
     lower_move=0.1, 
     figsize: tuple[int, int] = (5, 3),
     palette=None
@@ -322,6 +322,7 @@ def bar_plot_p_vs_o(
     results : list,
     labels: list[str],
     y_label='throughput (up./s)',
+    x_label='dataset',
     lower_move=0.1, 
     figsize: tuple[int, int] = (5, 3),
     palette=None
@@ -335,7 +336,7 @@ def bar_plot_p_vs_o(
         color=[palette[label] for label in labels],
         capsize=5,
         edgecolor='black',
-        width=0.8
+        width=0.7
     )
 
     for patch, label in zip(ax.patches, labels):
@@ -371,26 +372,26 @@ def bar_plot_p_vs_o(
 
     ax.set_xticks(midpoints)
     ax.set_xticklabels(datasets, ha='center')
-    # ax.set_xlabel('dataset')
+    ax.set_xlabel(x_label)
 
-    # --- Add P/O labels in axes coordinates ---
-    tick_fontsize = ax.get_xticklabels()[0].get_fontsize()
-    smaller_fontsize = tick_fontsize * 0.8
-    for i, tick in enumerate(tick_positions):
-        if n_methods == 2:
-            label = "PS" if i % 2 == 0 else "OS"
-        else:
-            label = "PS" if i % 3 == 0 else ("PSs" if i % 3 == 1 else "OS")
-        ax.text(
-            tick,
-            -lower_move,  # 5% below the x-axis
-            label,
-            ha='center',
-            va='top',
-            color='black', fontweight='bold',
-            fontsize=smaller_fontsize ,
-            transform=ax.get_xaxis_transform()  # <-- use axis coordinate system
-        )
+    # # --- Add P/O labels in axes coordinates ---
+    # tick_fontsize = ax.get_xticklabels()[0].get_fontsize()
+    # smaller_fontsize = tick_fontsize * 0.8
+    # for i, tick in enumerate(tick_positions):
+    #     if n_methods == 2:
+    #         label = "PS" if i % 2 == 0 else "OS"
+    #     else:
+    #         label = "PS" if i % 3 == 0 else ("PSs" if i % 3 == 1 else "OS")
+    #     ax.text(
+    #         tick,
+    #         -lower_move,  # 5% below the x-axis
+    #         label,
+    #         ha='center',
+    #         va='top',
+    #         color='black', fontweight='bold',
+    #         fontsize=smaller_fontsize ,
+    #         transform=ax.get_xaxis_transform()  # <-- use axis coordinate system
+    #     )
 
     fig.subplots_adjust(bottom=0.18)
     ax.set_ylabel(y_label)
@@ -409,7 +410,7 @@ def plot_scatter(
     x_max = None,
     figsize: tuple[int, int] = (5, 3),
     x_label ='nr query regions',
-    y_label = 'normalized error',
+    y_label = 'norm. error',
     step=None,
     palette=None,
     markers=None
@@ -447,13 +448,14 @@ def plot_scatter(
     ax.grid(True, linestyle='--')
     plt.tight_layout()
 
-    return fig
+    return fig, ax
 
 
 def error_bar_plot_p_vs_o(
     results: list[pd.DataFrame],
     col_y='normalized_error',
-    y_label='runtime (ms)', 
+    y_label='runtime (ms)',
+    x_label='', 
     figsize: tuple[int, int] = (5, 3),
     lower_bound: float = 0.0,
     log_scale=True,
@@ -480,7 +482,7 @@ def error_bar_plot_p_vs_o(
         color=[palette[label] for label in labels],
         capsize=1,
         edgecolor='black',
-        width=0.8
+        width=0.7
     )
 
     # --- Style bars ---
@@ -509,25 +511,25 @@ def error_bar_plot_p_vs_o(
 
     ax.set_xticks(midpoints)
     ax.set_xticklabels(datasets, ha='center')
-    # ax.set_xlabel('dataset')
+    ax.set_xlabel(x_label)
 
-    # --- Add P/O labels in axes coordinates ---
-    tick_fontsize = ax.get_xticklabels()[0].get_fontsize()
-    smaller_fontsize = tick_fontsize * 0.8
-    for i, tick in enumerate(tick_positions):
-        label = "PS" if i % 2 == 0 else "OS"
-        ax.text(
-            tick,
-            -lower_move,
-            label,
-            ha='center',
-            va='top',
-            color='black',
-            fontsize=smaller_fontsize ,
-            transform=ax.get_xaxis_transform()  # <-- use axis coordinate system
-        )
+    # # --- Add P/O labels in axes coordinates ---
+    # tick_fontsize = ax.get_xticklabels()[0].get_fontsize()
+    # smaller_fontsize = tick_fontsize * 0.8
+    # for i, tick in enumerate(tick_positions):
+    #     label = "PS" if i % 2 == 0 else "OS"
+    #     ax.text(
+    #         tick,
+    #         -lower_move,
+    #         label,
+    #         ha='center',
+    #         va='top',
+    #         color='black',
+    #         fontsize=smaller_fontsize ,
+    #         transform=ax.get_xaxis_transform()  # <-- use axis coordinate system
+    #     )
 
-    fig.subplots_adjust(bottom=0.18)
+    # fig.subplots_adjust(bottom=0.18)
 
     if log_scale:
         ax.set_yscale('log')
@@ -628,7 +630,7 @@ def plot_relative_accuracy_p_vs_o(
 def plot_violinplot_p_vs_o(
     dfs, 
     col_y='normalized_error', 
-    y_label='normalized error', 
+    y_label='norm. error', 
     lower_move=0.09,
     figsize=(8, 6), 
     log_scale=False, 
@@ -792,7 +794,7 @@ def plot_boxplot_p_vs_s(
 
         # Create secondary y-axis
         ax2 = ax.twinx()
-        ax2.set_ylabel("relative entropy", color=rel_entropy_color)
+        ax2.set_ylabel('rel. entropy', color=rel_entropy_color)
         ax2.tick_params(axis='y', labelcolor=rel_entropy_color)
         ax2.spines['right'].set_color(rel_entropy_color)
         ax2.tick_params(axis='y', colors=rel_entropy_color)
@@ -869,7 +871,7 @@ def plot_boxplot_p_vs_s(
 def plot_boxplot_p_vs_o(
     dfs, 
     col_y='normalized_error', 
-    y_label='normalized error',
+    y_label='norm. error',
     x_label='', 
     lower_move=0.09,
     figsize=(8, 6), 
@@ -927,7 +929,7 @@ def plot_boxplot_p_vs_o(
 
         # Create secondary y-axis
         ax2 = ax.twinx()
-        ax2.set_ylabel("relative entropy", color=rel_entropy_color)
+        ax2.set_ylabel('rel. entropy', color=rel_entropy_color)
         ax2.tick_params(axis='y', labelcolor=rel_entropy_color)
         ax2.spines['right'].set_color(rel_entropy_color)
         ax2.tick_params(axis='y', colors=rel_entropy_color)
@@ -969,27 +971,27 @@ def plot_boxplot_p_vs_o(
     ax.set_xticks(midpoints)
     ax.set_xticklabels(datasets, rotation=rotation, ha='center')
 
-    # === Add method labels ("P", "O") under each dataset
-    ylim = ax.get_ylim()
-    if ax.get_yscale() == 'log':
-        y_pos = ylim[0] / (ylim[1] / ylim[0]) ** lower_move
-    else:
-        y_pos = ylim[0] - (ylim[1] - ylim[0]) * 0.05
+    # # === Add method labels ("P", "O") under each dataset
+    # ylim = ax.get_ylim()
+    # if ax.get_yscale() == 'log':
+    #     y_pos = ylim[0] / (ylim[1] / ylim[0]) ** lower_move
+    # else:
+    #     y_pos = ylim[0] - (ylim[1] - ylim[0]) * 0.05
 
-    tick_fontsize = ax.get_xticklabels()[0].get_fontsize()
-    smaller_fontsize = tick_fontsize * 0.8
+    # tick_fontsize = ax.get_xticklabels()[0].get_fontsize()
+    # smaller_fontsize = tick_fontsize * 0.8
 
-    for i, tick in enumerate(xticks):
-        label = "PS" if i % 2 == 0 else "OS"
-        ax.text(
-            tick, y_pos, label,
-            ha='center', va='top',
-            color='black',
-            fontsize=smaller_fontsize
-        )
+    # for i, tick in enumerate(xticks):
+    #     label = "PS" if i % 2 == 0 else "OS"
+    #     ax.text(
+    #         tick, y_pos, label,
+    #         ha='center', va='top',
+    #         color='black',
+    #         fontsize=smaller_fontsize
+    #     )
 
-    if rotation:
-        ax.set_xticklabels(ax.get_xticklabels(), rotation=rotation, ha='center')
+    # if rotation:
+    #     ax.set_xticklabels(ax.get_xticklabels(), rotation=rotation, ha='center')
 
     if not show_legend and ax.get_legend():
         ax.get_legend().remove()
@@ -1005,7 +1007,7 @@ def plot_boxplot_p_vs_o(
 def plot_lineplot_p_vs_o(
     dfs, 
     col_y='normalized_error', 
-    y_label='normalized error', 
+    y_label='norm. error', 
     figsize=(8, 6), 
     log_scale=False, 
     palette=None, 
@@ -1087,7 +1089,7 @@ def plot_selectivities(
     for appoach in approaches:
         for sel in selectivities:
             result_df = pd.read_csv(f"{base_results_path}{appoach}/{dataset_name}/selectivities/{dataset_name}_sel_{sel}.csv")
-            result_df['approach'] = f'{appoach[0].upper()}-'+str(sel)
+            result_df['approach'] = f'{appoach[0].upper()}-'+str(int(sel*100))
             results.append(result_df)
 
     n_measurements = len(selectivities)
@@ -1102,7 +1104,7 @@ def plot_selectivities(
 
     custom_palette = {"pacha" : "tab:blue", "omni" : "tab:blue"}
 
-    return plot_lineplot_p_vs_o(results, x_label='selectivity', log_scale=True, figsize=figsize, palette=custom_palette)
+    return plot_lineplot_p_vs_o(results, x_label='selectivity (\%)', log_scale=True, figsize=figsize, palette=custom_palette)
     # return plot_boxplot_p_vs_o(results, lower_move=lower_move, log_scale=True, figsize=figsize, palette=custom_palette)
 
 def plot_predicates(
@@ -1183,7 +1185,7 @@ def plot_predicates(
 def plot_boxplot(
     dfs, 
     col_y='normalized_error', 
-    y_label='normalized error', 
+    y_label='norm. error', 
     x_label="approach", 
     figsize=(8, 6), 
     log_scale=False, 
@@ -1242,7 +1244,7 @@ def plot_boxplot(
 
         # Create secondary y-axis
         ax2 = ax.twinx()
-        ax2.set_ylabel("relative entropy", color=rel_entropy_color)
+        ax2.set_ylabel('rel. entropy', color=rel_entropy_color)
         ax2.tick_params(axis='y', labelcolor=rel_entropy_color)
         ax2.spines['right'].set_color(rel_entropy_color)
         ax2.tick_params(axis='y', colors=rel_entropy_color)
@@ -1284,7 +1286,7 @@ def plot_boxplot(
 
     if rotation:
         ax.set_xticklabels(ax.get_xticklabels(), rotation=rotation, ha='center')
-
+    
     if not show_legend and ax.get_legend():
         ax.get_legend().remove()
 
@@ -1298,7 +1300,7 @@ def plot_boxplot(
 def plot_violinplot(
     dfs, 
     col_y='normalized_error', 
-    y_label='normalized error', 
+    y_label='norm. error', 
     x_label="approach", 
     figsize=(8, 6), 
     log_scale=False, 
